@@ -1,0 +1,5 @@
+ALTER TABLE "Course"
+ADD COLUMN "courseType" TEXT NOT NULL DEFAULT 'Long Course',
+ADD COLUMN "startDate" TIMESTAMP(3),
+ADD COLUMN "fee" INTEGER,
+ADD COLUMN "imageUrl" TEXT;

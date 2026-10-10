@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../backend/src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Role {
+  id          Int        @id @default(autoincrement())
+  name        String     @unique
+  description String?
+  users       UserRole[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model User {
+  id               Int               @id @default(autoincrement())
+  email            String            @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  phone            String?
+  isActive         Boolean           @default(true)
+  roles            UserRole[]
+  applicantProfile ApplicantProfile?
+  bookings         Booking[]
+  newsReactions    NewsReaction[]
+  newsComments     NewsComment[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model UserRole {
+  userId Int
+  roleId Int
+  user   User @relation(fields: [userId], references: [id])
+  role   Role @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+}
+
+model Region {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  districts District[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model District {
+  id        Int              @id @default(autoincrement())
+  name      String
+  regionId  Int
+  region    Region           @relation(fields: [regionId], references: [id])
+  centres   TrainingCentre[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+}
+
+model TrainingCentre {
+  id         Int            @id @default(autoincrement())
+  name       String
+  slug       String         @unique
+  type       String         @default("Training centre")
+  focus      String         @default("Vocational training")
+  districtId Int
+  district   District       @relation(fields: [districtId], references: [id])
+  courses    CentreCourse[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model Course {
+  id          Int            @id @default(autoincrement())
+  name        String
+  slug        String         @unique
+  description String?
+  level       String
+  duration    String
+  courseType  String         @default("Long Course")
+  startDate   DateTime?
+  fee         Int?
+  imageUrl    String?
+  centres     CentreCourse[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model CentreCourse {
+  centreId Int
+  courseId Int
+  centre   TrainingCentre @relation(fields: [centreId], references: [id])
+  course   Course         @relation(fields: [courseId], references: [id])
+
+  @@id([centreId, courseId])
+}
+
+model Booking {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName  String
+  course    String
+  centre    String
+  date      DateTime
+  note      String   @default("")
+  status    String   @default("Pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+model Review {
+  id        Int      @id @default(autoincrement())
+  userName  String
+  course    String
+  rating    Int
+  comment   String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model ApplicantProfile {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @unique
+  user            User      @relation(fields: [userId], references: [id])
+  dateOfBirth     DateTime?
+  gender          String?
+  nationality     String?
+  address         String?
+  preferredCourse String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Application {
+  id               Int      @id @default(autoincrement())
+  applicantName    String
+  email            String
+  programme        String
+  centrePreference String?
+  status           String   @default("submitted")
+  submittedAt      DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model ContactInquiry {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String
+  category  String
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model NewsArticle {
+  id         Int            @id @default(autoincrement())
+  title      String
+  slug       String         @unique
+  category   String         @default("News")
+  summary    String?
+  body       String
+  imageUrl   String?
+  videoUrl   String?
+  youtubeUrl String?
+  published  Boolean        @default(true)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  reactions  NewsReaction[]
+  comments   NewsComment[]
+}
+
+model NewsReaction {
+  newsArticleId Int
+  userId        Int
+  reaction      String
+  article       NewsArticle @relation(fields: [newsArticleId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@id([newsArticleId, userId])
+  @@index([newsArticleId, reaction])
+}
+
+model NewsComment {
+  id            Int         @id @default(autoincrement())
+  newsArticleId Int
+  userId        Int
+  content       String
+  article       NewsArticle @relation(fields: [newsArticleId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@index([newsArticleId, createdAt])
+}
+
+model Publication {
+  id        Int      @id @default(autoincrement())
+  title     String
+  fileUrl   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  actor     String
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+}
+
+model SiteSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
