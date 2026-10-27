@@ -1,0 +1,2 @@
+ALTER TABLE "User"
+ADD COLUMN "paymentProofRejectionCount" INTEGER NOT NULL DEFAULT 0;

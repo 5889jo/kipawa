@@ -1,5 +1,7 @@
 create extension if not exists pgcrypto;
 
+drop table if exists public.reviews;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null,
@@ -30,16 +32,6 @@ create table if not exists public.bookings (
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.reviews (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  user_name text not null,
-  course text not null,
-  rating int not null check (rating between 1 and 5),
-  comment text not null,
-  created_at timestamptz not null default now()
-);
-
 create table if not exists public.announcements (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -51,7 +43,6 @@ create table if not exists public.announcements (
 alter table public.profiles enable row level security;
 alter table public.courses enable row level security;
 alter table public.bookings enable row level security;
-alter table public.reviews enable row level security;
 alter table public.announcements enable row level security;
 
 create policy "Profiles are viewable by everyone"
@@ -73,11 +64,6 @@ on public.bookings for select using ((select auth.uid()) = user_id);
 create policy "Admins can view all bookings"
 on public.bookings for select using ((select public.is_admin()) = true);
 
-create policy "Users can insert their own reviews"
-on public.reviews for insert with check ((select auth.uid()) = user_id);
-create policy "Reviews are viewable by everyone"
-on public.reviews for select using (true);
-
 create policy "Announcements are viewable by everyone"
 on public.announcements for select using (true);
 create policy "Admins can manage announcements"
@@ -98,7 +84,6 @@ $$;
 
 grant usage on schema public to anon, authenticated;
 grant select on public.courses to anon, authenticated;
-grant select on public.reviews to anon, authenticated;
 grant select on public.announcements to anon, authenticated;
 grant select, insert, update, delete on public.profiles, public.bookings to authenticated;
-grant select, insert, update, delete on public.courses, public.reviews, public.announcements to authenticated;
+grant select, insert, update, delete on public.courses, public.announcements to authenticated;

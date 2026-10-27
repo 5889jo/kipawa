@@ -1,6 +1,7 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../backend/src/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../backend/src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -11,26 +12,31 @@ model Role {
   id          Int        @id @default(autoincrement())
   name        String     @unique
   description String?
+  permissions String[]   @default([])
   users       UserRole[]
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 }
 
 model User {
-  id               Int               @id @default(autoincrement())
-  email            String            @unique
-  passwordHash     String
-  firstName        String
-  lastName         String
-  phone            String?
-  isActive         Boolean           @default(true)
-  roles            UserRole[]
-  applicantProfile ApplicantProfile?
-  bookings         Booking[]
-  newsReactions    NewsReaction[]
-  newsComments     NewsComment[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                         Int                   @id @default(autoincrement())
+  email                      String                @unique
+  passwordHash               String
+  firstName                  String
+  lastName                   String
+  phone                      String?
+  phoneVerifiedAt            DateTime?
+  isActive                   Boolean               @default(true)
+  paymentProofRejectionCount Int                   @default(0)
+  roles                      UserRole[]
+  applicantProfile           ApplicantProfile?
+  bookings                   Booking[]
+  courseInterests            CourseInterest[]
+  learnerNotifications       LearnerNotification[]
+  newsReactions              NewsReaction[]
+  newsComments               NewsComment[]
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
 }
 
 model UserRole {
@@ -45,6 +51,7 @@ model UserRole {
 model Region {
   id        Int        @id @default(autoincrement())
   name      String     @unique
+  nameSw    String?
   districts District[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -53,6 +60,7 @@ model Region {
 model District {
   id        Int              @id @default(autoincrement())
   name      String
+  nameSw    String?
   regionId  Int
   region    Region           @relation(fields: [regionId], references: [id])
   centres   TrainingCentre[]
@@ -63,9 +71,12 @@ model District {
 model TrainingCentre {
   id         Int            @id @default(autoincrement())
   name       String
+  nameSw     String?
   slug       String         @unique
   type       String         @default("Training centre")
+  typeSw     String?
   focus      String         @default("Vocational training")
+  focusSw    String?
   districtId Int
   district   District       @relation(fields: [districtId], references: [id])
   courses    CentreCourse[]
@@ -73,56 +84,148 @@ model TrainingCentre {
   updatedAt  DateTime       @updatedAt
 }
 
+model CourseCategory {
+  code      String   @id
+  name      String
+  nameSw    String?
+  sortOrder Int      @default(0)
+  courses   Course[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Course {
-  id          Int            @id @default(autoincrement())
-  name        String
-  slug        String         @unique
-  description String?
-  level       String
-  duration    String
-  courseType  String         @default("Long Course")
-  startDate   DateTime?
-  fee         Int?
-  imageUrl    String?
-  centres     CentreCourse[]
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id              Int              @id @default(autoincrement())
+  name            String
+  nameSw          String?
+  slug            String           @unique
+  description     String?
+  descriptionSw   String?
+  level           String
+  levelSw         String?
+  duration        String
+  durationSw      String?
+  courseType      String           @default("Long Course")
+  category        String           @default("ICT")
+  categoryRecord  CourseCategory   @relation(fields: [category], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  startDate       DateTime?
+  endDate         DateTime?
+  publishedFrom   DateTime?
+  publishedUntil  DateTime?
+  fee             Int?
+  imageUrl        String?
+  centres         CentreCourse[]
+  media           CourseMedia[]
+  courseInterests CourseInterest[]
+  publications    Publication[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model CourseMedia {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  type      String
+  url       String
+  sortOrder Int      @default(0)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([courseId, sortOrder, id])
 }
 
 model CentreCourse {
   centreId Int
   courseId Int
   centre   TrainingCentre @relation(fields: [centreId], references: [id])
-  course   Course         @relation(fields: [courseId], references: [id])
+  course   Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@id([centreId, courseId])
 }
 
 model Booking {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userName  String
-  course    String
-  centre    String
-  date      DateTime
-  note      String   @default("")
-  status    String   @default("Pending")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 Int       @id @default(autoincrement())
+  userId             Int?
+  user               User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userName           String
+  email              String?
+  phone              String?
+  dateOfBirth        DateTime?
+  gender             String?
+  nationality        String?
+  address            String?
+  educationLevel     String?
+  course             String
+  centre             String
+  date               DateTime
+  note               String    @default("")
+  status             String    @default("Pending")
+  confirmedStartDate DateTime?
+  adminFeedback      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([userId, createdAt])
 }
 
-model Review {
-  id        Int      @id @default(autoincrement())
-  userName  String
-  course    String
-  rating    Int
-  comment   String
-  createdAt DateTime @default(now())
+model CourseInterest {
+  id                          Int                   @id @default(autoincrement())
+  userId                      Int?
+  user                        User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId                    Int?
+  courseRecord                Course?               @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  fullName                    String?
+  email                       String?
+  phone                       String?
+  dateOfBirth                 DateTime?
+  gender                      String?
+  nationality                 String?
+  address                     String?
+  educationLevel              String?
+  emergencyContactName        String?
+  emergencyContactPhone       String?
+  course                      String?
+  courseType                  String?
+  campaignSource     String?
+  campaignMedium     String?
+  campaignName       String?
+  centrePreference   String?
+  message                     String?
+  status                      String                @default("new")
+  controlNumber               String?
+  paymentProofPath            String?
+  paymentProofUploadedAt      DateTime?
+  proofReviewedAt             DateTime?
+  proofFeedback               String?
+  formFeeTransactionReference String?               @unique
+  formFeeVerifiedAmount       Int?
+  applicationSubmittedAt      DateTime?
+  applicationFeedback         String?
+  contactedAt                 DateTime?
+  formFeePaidAt               DateTime?
+  courseFeePaidAt             DateTime?
+  confirmedStartDate          DateTime?
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
+  learnerNotifications        LearnerNotification[]
 
-  @@index([createdAt])
+  @@unique([userId], where: raw("\"userId\" IS NOT NULL AND \"status\" NOT IN ('application_declined', 'superseded')"))
+  @@index([course, createdAt])
+  @@index([courseId])
+}
+
+model LearnerNotification {
+  id               Int            @id @default(autoincrement())
+  userId           Int
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseInterestId Int
+  courseInterest   CourseInterest @relation(fields: [courseInterestId], references: [id], onDelete: Cascade)
+  type             String
+  createdAt        DateTime       @default(now())
+  readAt           DateTime?
+
+  @@index([userId, readAt, createdAt])
+  @@index([courseInterestId])
 }
 
 model ApplicantProfile {
@@ -164,10 +267,14 @@ model ContactInquiry {
 model NewsArticle {
   id         Int            @id @default(autoincrement())
   title      String
+  titleSw    String?
   slug       String         @unique
   category   String         @default("News")
+  categorySw String?
   summary    String?
+  summarySw  String?
   body       String
+  bodySw     String?
   imageUrl   String?
   videoUrl   String?
   youtubeUrl String?
@@ -206,9 +313,14 @@ model NewsComment {
 model Publication {
   id        Int      @id @default(autoincrement())
   title     String
+  titleSw   String?
   fileUrl   String
+  courseId  Int?
+  course    Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([courseId])
 }
 
 model AuditLog {
@@ -222,5 +334,59 @@ model AuditLog {
 model SiteSetting {
   key       String   @id
   value     String
+  valueSw   String?
   updatedAt DateTime @updatedAt
+}
+
+model OrganizationMember {
+  id                 Int                  @id @default(autoincrement())
+  name               String
+  nameSw             String?
+  position           String
+  positionSw         String?
+  biography          String               @default("") @db.Text
+  biographySw        String?              @db.Text
+  qualifications     String?              @db.Text
+  qualificationsSw   String?              @db.Text
+  responsibilities   String?              @db.Text
+  responsibilitiesSw String?              @db.Text
+  imageUrl           String?
+  managerId          Int?
+  manager            OrganizationMember?  @relation("OrganizationReporting", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports      OrganizationMember[] @relation("OrganizationReporting")
+  sortOrder          Int                  @default(0)
+  isPublished        Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([managerId, sortOrder, id])
+  @@index([isPublished, managerId, sortOrder])
+}
+
+model Partner {
+  id            Int      @id @default(autoincrement())
+  name          String
+  nameSw        String?
+  description   String   @default("") @db.Text
+  descriptionSw String?  @db.Text
+  logoUrl       String?
+  websiteUrl    String?
+  sortOrder     Int      @default(0)
+  isPublished   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isPublished, sortOrder, id])
+}
+
+model WebsiteDailyVisitor {
+  visitorDate DateTime @db.Date
+  visitorHash String   @db.Char(64)
+
+  @@id([visitorDate, visitorHash])
+}
+
+model WebsiteDailyVisitorCount {
+  visitorDate DateTime @id @db.Date
+  count       Int      @default(0)
 }

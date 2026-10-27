@@ -5,7 +5,7 @@ const LANGUAGE_STORAGE_KEY = 'kipawa-language'
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<Language>(() =>
-    window.localStorage.getItem(LANGUAGE_STORAGE_KEY) === 'sw' ? 'sw' : 'en'
+    window.localStorage.getItem(LANGUAGE_STORAGE_KEY) === 'en' ? 'en' : 'sw'
   )
 
   useEffect(() => {

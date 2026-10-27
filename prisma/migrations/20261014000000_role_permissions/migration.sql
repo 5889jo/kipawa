@@ -1,0 +1,2 @@
+ALTER TABLE "Role"
+ADD COLUMN "permissions" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

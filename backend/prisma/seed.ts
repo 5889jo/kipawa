@@ -11,6 +11,15 @@ if (!databaseUrl) {
 }
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) })
 
+function getCourseCategory(courseName: string) {
+  const normalizedName = courseName.toLowerCase()
+  if (normalizedName.includes('driv')) return 'ICT'
+  if (normalizedName.includes('mechatronic')) return 'MECHATRONICS'
+  if (normalizedName.includes('electronic')) return 'ELECTRONICS'
+  if (normalizedName.includes('electri') || normalizedName.includes('automation')) return 'ELECTRICAL'
+  return 'OTHER'
+}
+
 const trainingCentreSeeds = [
   {
     name: 'Multimedia Lab',
@@ -77,6 +86,7 @@ const courseSeeds = [
     description: 'Build practical skills in computer installation, troubleshooting, LAN administration, and network support for digital workplaces.',
     level: 'Diploma',
     duration: '18 months',
+    imageUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1000&q=80',
     centre: {
       name: 'Dar es Salaam Digital Skills Hub',
       district: 'Kinondoni',
@@ -91,6 +101,7 @@ const courseSeeds = [
     description: 'Learn front-end and back-end development, UI/UX, mobile product design, and deployment for modern digital services.',
     level: 'Certificate',
     duration: '12 months',
+    imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1000&q=80',
     centre: {
       name: 'Kigamboni ICT Academy',
       district: 'Temeke',
@@ -105,6 +116,7 @@ const courseSeeds = [
     description: 'Gain foundational skills in cybersecurity, digital safety, threat awareness, and secure computing for everyday ICT environments.',
     level: 'Certificate',
     duration: '12 months',
+    imageUrl: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1000&q=80',
     centre: {
       name: 'Mwanza ICT Training Centre',
       district: 'Mwanza City',
@@ -119,6 +131,7 @@ const courseSeeds = [
     description: 'Learn programming logic, Python syntax, automation, and problem-solving for entry-level digital jobs and further study.',
     level: 'Short Course',
     duration: '3 months',
+    imageUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1000&q=80',
     centre: {
       name: 'Arusha Digital Skills Studio',
       district: 'Arusha City',
@@ -133,6 +146,7 @@ const courseSeeds = [
     description: 'Develop hands-on networking skills in IP addressing, switching, routing, and troubleshooting essential network systems.',
     level: 'Short Course',
     duration: '4 months',
+    imageUrl: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=1000&q=80',
     centre: {
       name: 'Mbeya Tech Skills Lab',
       district: 'Mbeya Rural',
@@ -147,6 +161,7 @@ const courseSeeds = [
     description: 'Practice website design, social media strategy, branding, and online customer engagement for modern digital businesses.',
     level: 'Short Course',
     duration: '2 months',
+    imageUrl: 'https://images.unsplash.com/photo-1492619375914-88005aa9e8fb?auto=format&fit=crop&w=1000&q=80',
     centre: {
       name: 'Morogoro Creative ICT Centre',
       district: 'Morogoro Municipal',
@@ -157,10 +172,83 @@ const courseSeeds = [
   }
 ]
 
-const shortCourseSeeds = [
+type LongCourseSeed = {
+  name: string
+  slug: string
+  category: string
+  description: string
+  descriptionSw: string
+  level: string
+  duration: string
+  fee: number | null
+  imageUrl: string
+}
+
+const longCourseSeeds: LongCourseSeed[] = [
+  {
+    name: 'Electronics',
+    slug: 'electronics-el',
+    category: 'ELECTRONICS',
+    description: 'Develop practical electronics skills by studying components, circuits, measurement, testing and fault diagnosis.',
+    descriptionSw: 'Jenga ujuzi wa vitendo wa elektroniki kwa kujifunza vipengele, saketi, vipimo, majaribio na utambuzi wa hitilafu.',
+    level: 'III',
+    duration: '3 years',
+    fee: 60000,
+    imageUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Information and Communication Technology',
+    slug: 'information-and-communication-technology-ict',
+    category: 'ICT',
+    description: 'Build a strong foundation in computer systems, office applications, networking and practical ICT support.',
+    descriptionSw: 'Jenga msingi imara katika mifumo ya kompyuta, programu za ofisi, mitandao na usaidizi wa vitendo wa TEHAMA.',
+    level: 'III',
+    duration: '3 years',
+    fee: 60000,
+    imageUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Electrical Installation',
+    slug: 'electrical-installation-and-automation-ela',
+    category: 'ELECTRICAL',
+    description: 'Learn electrical installation practices, safe use of tools, wiring, testing and maintenance.',
+    descriptionSw: 'Jifunze taratibu za usakinishaji wa umeme, matumizi salama ya zana, uunganishaji wa nyaya, upimaji na matengenezo.',
+    level: 'III',
+    duration: '3 years',
+    fee: 60000,
+    imageUrl: 'https://images.unsplash.com/photo-1621905251918-48416bd8575a?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Multimedia and Film Technology',
+    slug: 'multimedia-and-film-technology',
+    category: 'ICT',
+    description: 'Explore multimedia production, photography, video, sound and digital storytelling.',
+    descriptionSw: 'Jifunze uzalishaji wa maudhui ya kidijitali, upigaji picha, video, sauti na usimulizi wa hadithi kwa njia ya kidijitali.',
+    level: 'Long Course',
+    duration: 'Not specified',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1492619375914-88005aa9e8fb?auto=format&fit=crop&w=1000&q=80'
+  }
+]
+
+type ShortCourseSeed = {
+  name: string
+  slug: string
+  category: string
+  description: string
+  descriptionSw?: string
+  level?: string
+  duration: string
+  startDate?: string
+  fee?: number | null
+  imageUrl: string
+}
+
+const shortCourseSeeds: ShortCourseSeed[] = [
   {
     name: 'Basic Mechatronics',
     slug: 'basic-mechatronics',
+    category: 'MECHATRONICS',
     description: 'Pata ujuzi wa msingi wa mitambo, mifumo ya umeme na udhibiti wa mashine kwa mafunzo ya vitendo.',
     duration: 'Wiki nne (4)',
     startDate: '2026-09-28',
@@ -170,6 +258,7 @@ const shortCourseSeeds = [
   {
     name: 'Basic Mobile Phone Technician',
     slug: 'basic-mobile-phone-technician',
+    category: 'ELECTRONICS',
     description: 'Jifunze kutambua hitilafu za simu na kufanya matengenezo ya msingi kwa usalama.',
     duration: 'Wiki nne (4)',
     startDate: '2026-09-28',
@@ -179,15 +268,18 @@ const shortCourseSeeds = [
   {
     name: 'Computer Application',
     slug: 'computer-application',
-    description: 'Jenga ujuzi wa matumizi ya kompyuta na programu muhimu za kazi na biashara.',
-    duration: 'Wiki nne (4)',
-    startDate: '2026-10-05',
-    fee: 225000,
+    category: 'ICT',
+    description: 'Learn computer fundamentals, file management, word processing, spreadsheets, presentations and safe internet use.',
+    descriptionSw: 'Jifunze misingi ya kompyuta, usimamizi wa mafaili, uandishi wa nyaraka, majedwali, mawasilisho na matumizi salama ya intaneti.',
+    level: 'Not specified',
+    duration: '2 years',
+    fee: null,
     imageUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1000&q=80'
   },
   {
     name: 'Electrical Installation Intermediate',
     slug: 'electrical-installation-intermediate',
+    category: 'ELECTRICAL',
     description: 'Imarisha ujuzi wa kufunga na kukagua mifumo ya umeme kwa kuzingatia viwango vya usalama.',
     duration: 'Wiki sita (6)',
     startDate: '2026-10-12',
@@ -197,6 +289,7 @@ const shortCourseSeeds = [
   {
     name: 'Fundamental Electronics',
     slug: 'fundamental-electronics',
+    category: 'ELECTRONICS',
     description: 'Elewa misingi ya saketi za kielektroniki, vipengele vyake na upimaji wa hitilafu.',
     duration: 'Wiki nne (4)',
     startDate: '2026-09-28',
@@ -206,15 +299,18 @@ const shortCourseSeeds = [
   {
     name: 'Electrical Beginner',
     slug: 'electrical-beginner',
-    description: 'Anza kujifunza misingi ya umeme, zana za kazi na taratibu muhimu za usalama.',
-    duration: 'Wiki sita (6)',
-    startDate: '2026-10-05',
-    fee: 250000,
+    category: 'ELECTRICAL',
+    description: 'Start with electrical safety, basic tools, simple circuits, wiring principles and introductory testing.',
+    descriptionSw: 'Anza na usalama wa umeme, zana za msingi, saketi rahisi, kanuni za uunganishaji wa nyaya na upimaji wa utangulizi.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
     imageUrl: 'https://images.unsplash.com/photo-1497440001374-f26997328c1b?auto=format&fit=crop&w=1000&q=80'
   },
   {
     name: 'Computer Repair & Maintenance',
     slug: 'computer-repair-maintenance',
+    category: 'ICT',
     description: 'Jifunze kutambua na kurekebisha hitilafu za kompyuta pamoja na matengenezo ya kinga.',
     duration: 'Wiki nne (4)',
     startDate: '2026-10-05',
@@ -224,6 +320,7 @@ const shortCourseSeeds = [
   {
     name: 'Customer Care',
     slug: 'customer-care',
+    category: 'OTHER',
     description: 'Boresha mawasiliano, huduma kwa wateja na utatuzi wa changamoto katika sehemu za kazi.',
     duration: 'Wiki nne (4)',
     startDate: '2026-09-28',
@@ -233,15 +330,18 @@ const shortCourseSeeds = [
   {
     name: 'Graphics Design & Video Production',
     slug: 'graphics-design-video-production',
-    description: 'Tengeneza michoro na video za kuvutia kwa kutumia mbinu za ubunifu na uzalishaji wa kidijitali.',
-    duration: 'Wiki sita (6)',
-    startDate: '2026-10-12',
-    fee: 320000,
+    category: 'ICT',
+    description: 'Combine graphic design and video production through visual communication, image editing, filming and editing practice.',
+    descriptionSw: 'Unganisha usanifu wa picha na utengenezaji wa video kupitia mawasiliano ya kuona, uhariri wa picha, kurekodi na kuhariri video.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
     imageUrl: 'https://images.unsplash.com/photo-1492619375914-88005aa9e8fb?auto=format&fit=crop&w=1000&q=80'
   },
   {
     name: 'Electrical Advance',
     slug: 'electrical-advance',
+    category: 'ELECTRICAL',
     description: 'Panua maarifa ya mifumo ya umeme na utatuzi wa matatizo kwa mafunzo ya kiwango cha juu.',
     duration: 'Wiki sita (6)',
     startDate: '2026-10-12',
@@ -251,11 +351,166 @@ const shortCourseSeeds = [
   {
     name: 'Basic Driving',
     slug: 'basic-driving',
+    category: 'OTHER',
     description: 'Pata maarifa ya msingi ya uendeshaji salama, alama za barabarani na utunzaji wa gari.',
     duration: 'Wiki sita (6)',
     startDate: '2026-09-28',
     fee: 275000,
     imageUrl: 'https://images.unsplash.com/photo-1449965408869-2d1f8a5a6a9f?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Advanced Computer Application',
+    slug: 'advanced-computer-application',
+    category: 'ICT',
+    description: 'Build advanced productivity skills with document formatting, spreadsheet analysis, presentations and collaborative digital tools.',
+    descriptionSw: 'Jenga ujuzi wa hali ya juu wa kazi za kompyuta kwa upangiliaji wa nyaraka, uchanganuzi wa majedwali, mawasilisho na zana za ushirikiano.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Graphics Designing',
+    slug: 'graphics-designing',
+    category: 'ICT',
+    description: 'Learn graphic design principles, typography, colour, layout and digital artwork for print and online use.',
+    descriptionSw: 'Jifunze kanuni za usanifu wa picha, uchapaji, rangi, mpangilio na kazi za sanaa za kidijitali kwa uchapishaji na matumizi ya mtandaoni.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1492619375914-88005aa9e8fb?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Basic Website Design',
+    slug: 'basic-website-design',
+    category: 'ICT',
+    description: 'Create simple websites using page structure, styling, images and responsive layouts.',
+    descriptionSw: 'Tengeneza tovuti rahisi kwa kutumia muundo wa kurasa, mitindo, picha na mpangilio unaojibadilisha.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Advanced Website Design',
+    slug: 'advanced-website-design',
+    category: 'ICT',
+    description: 'Extend website design skills with responsive interfaces, interactive features, accessibility and testing.',
+    descriptionSw: 'Boresha ujuzi wa usanifu wa tovuti kwa violesura vinavyojibadilisha, vipengele shirikishi, ufikivu na upimaji.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'PC Maintenance',
+    slug: 'pc-maintenance',
+    category: 'ICT',
+    description: 'Learn computer hardware care, operating system setup, fault diagnosis and preventive maintenance.',
+    descriptionSw: 'Jifunze utunzaji wa vifaa vya kompyuta, usanidi wa mfumo wa uendeshaji, utambuzi wa hitilafu na matengenezo ya kinga.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: 600000,
+    imageUrl: 'https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'PC Maintenance & Networking',
+    slug: 'pc-maintenance-networking',
+    category: 'ICT',
+    description: 'Combine computer maintenance with local networking, IP configuration, device connections and troubleshooting.',
+    descriptionSw: 'Unganisha matengenezo ya kompyuta na mitandao ya eneo, usanidi wa IP, uunganishaji wa vifaa na utatuzi wa matatizo.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Statistical Packages for Social Science (SPSS)',
+    slug: 'statistical-packages-social-science-spss',
+    category: 'ICT',
+    description: 'Practise preparing datasets, entering and coding data, running introductory statistical summaries and presenting results in SPSS.',
+    descriptionSw: 'Fanya mazoezi ya kuandaa seti za data, kuingiza na kuweka misimbo ya data, kufanya muhtasari wa takwimu na kuwasilisha matokeo kwa SPSS.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'AutoCAD',
+    slug: 'autocad',
+    category: 'ICT',
+    description: 'Learn computer-aided drafting, drawing tools, dimensions, layers and preparation of clear technical drawings.',
+    descriptionSw: 'Jifunze usanifu wa michoro kwa kompyuta, zana za kuchora, vipimo, tabaka na maandalizi ya michoro ya kiufundi iliyo wazi.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Electrical Installation for Beginners',
+    slug: 'electrical-installation-for-beginners',
+    category: 'ELECTRICAL',
+    description: 'Practise safe basic electrical installation, including tools, conductors, simple wiring, inspection and testing.',
+    descriptionSw: 'Fanya mazoezi ya usakinishaji salama wa msingi wa umeme, ikiwemo zana, nyaya, uunganishaji rahisi, ukaguzi na upimaji.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1621905251918-48416bd8575a?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Advanced Electrical & Automation',
+    slug: 'advanced-electrical-automation',
+    category: 'ELECTRICAL',
+    description: 'Develop advanced electrical and automation skills through control circuits, sensors, motor control and system troubleshooting.',
+    descriptionSw: 'Jenga ujuzi wa hali ya juu wa umeme na otomatiki kupitia saketi za udhibiti, vihisi, udhibiti wa mota na utatuzi wa mifumo.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'English',
+    slug: 'english',
+    category: 'OTHER',
+    description: 'Strengthen practical English speaking, listening, reading and writing for everyday and workplace communication.',
+    descriptionSw: 'Imarisha ujuzi wa vitendo wa kuzungumza, kusikiliza, kusoma na kuandika Kiingereza kwa mawasiliano ya kila siku na kazini.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Basic Entrepreneurship',
+    slug: 'basic-entrepreneurship',
+    category: 'OTHER',
+    description: 'Explore business opportunities, customer needs, simple business planning, pricing and basic record keeping.',
+    descriptionSw: 'Chunguza fursa za biashara, mahitaji ya wateja, mipango rahisi ya biashara, uwekaji wa bei na utunzaji wa kumbukumbu za msingi.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'Salesmanship',
+    slug: 'salesmanship',
+    category: 'OTHER',
+    description: 'Practise product knowledge, customer communication, sales conversations, handling objections and basic sales records.',
+    descriptionSw: 'Fanya mazoezi ya maarifa ya bidhaa, mawasiliano na wateja, mazungumzo ya mauzo, kushughulikia pingamizi na kumbukumbu za mauzo.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1000&q=80'
+  },
+  {
+    name: 'MERCHANDIZING/APPARELS MARKETING BASIC',
+    slug: 'merchandizing-apparels-marketing-basic',
+    category: 'OTHER',
+    description: 'Learn basic apparel merchandising, product presentation, stock and size organization, pricing and customer service.',
+    descriptionSw: 'Jifunze uuzaji wa msingi wa mavazi, uwasilishaji wa bidhaa, upangaji wa stoo na saizi, uwekaji wa bei na huduma kwa wateja.',
+    level: 'Not specified',
+    duration: '1 year',
+    fee: null,
+    imageUrl: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1000&q=80'
   }
 ]
 
@@ -300,6 +555,57 @@ async function main() {
     update: {},
     create: { name: 'applicant', description: 'Training applicant' }
   })
+
+  const organizationMemberCount = await prisma.organizationMember.count()
+  if (organizationMemberCount === 0) {
+    const templateName = '[Replace with staff name]'
+    const centreLead = await prisma.organizationMember.create({
+      data: {
+        name: templateName,
+        position: 'Centre Principal',
+        biography: '',
+        isPublished: false,
+        sortOrder: 0
+      }
+    })
+    const academicLead = await prisma.organizationMember.create({
+      data: {
+        name: templateName,
+        position: 'Deputy Principal — Training and Academics',
+        managerId: centreLead.id,
+        biography: '',
+        isPublished: false,
+        sortOrder: 1
+      }
+    })
+    const administrationLead = await prisma.organizationMember.create({
+      data: {
+        name: templateName,
+        position: 'Deputy Principal — Administration',
+        managerId: centreLead.id,
+        biography: '',
+        isPublished: false,
+        sortOrder: 2
+      }
+    })
+    const teamTemplates = [
+      { position: 'Head of ICT', managerId: academicLead.id, sortOrder: 1 },
+      { position: 'Head of Electrical and Electronics', managerId: academicLead.id, sortOrder: 2 },
+      { position: 'Head of Mechatronics and Automation', managerId: academicLead.id, sortOrder: 3 },
+      { position: 'Head of Student Services and Administration', managerId: administrationLead.id, sortOrder: 1 }
+    ]
+    await prisma.organizationMember.createMany({
+      data: teamTemplates.map((template) => ({
+        name: templateName,
+        position: template.position,
+        managerId: template.managerId,
+        biography: '',
+        isPublished: false,
+        sortOrder: template.sortOrder
+      }))
+    })
+    console.log('Unpublished team structure templates seeded. Replace placeholder names before publishing.')
+  }
 
   const adminPassword = process.env.ADMIN_PASSWORD
   if (adminPassword) {
@@ -358,14 +664,12 @@ async function main() {
     })
     const course = await prisma.course.upsert({
       where: { slug: courseSeed.slug },
-      update: {
-        name: courseSeed.name,
-        description: courseSeed.description,
-        level: courseSeed.level,
-        duration: courseSeed.duration,
+      update: {},
+      create: {
+        ...courseData,
+        category: getCourseCategory(courseSeed.name),
         courseType: courseSeed.level === 'Short Course' ? 'Short Course' : 'Long Course'
-      },
-      create: { ...courseData, courseType: courseSeed.level === 'Short Course' ? 'Short Course' : 'Long Course' }
+      }
     })
     await prisma.centreCourse.upsert({
       where: { centreId_courseId: { centreId: centre.id, courseId: course.id } },
@@ -374,24 +678,28 @@ async function main() {
     })
   }
 
+  for (const courseSeed of longCourseSeeds) {
+    await prisma.course.upsert({
+      where: { slug: courseSeed.slug },
+      update: {},
+      create: {
+        ...courseSeed,
+        courseType: 'Long Course',
+        category: courseSeed.category
+      }
+    })
+  }
+
   for (const courseSeed of shortCourseSeeds) {
     await prisma.course.upsert({
       where: { slug: courseSeed.slug },
-      update: {
-        name: courseSeed.name,
-        description: courseSeed.description,
-        level: 'Short Course',
-        duration: courseSeed.duration,
-        courseType: 'Short Course',
-        startDate: new Date(`${courseSeed.startDate}T00:00:00.000Z`),
-        fee: courseSeed.fee,
-        imageUrl: courseSeed.imageUrl
-      },
+      update: {},
       create: {
         ...courseSeed,
-        level: 'Short Course',
+        level: courseSeed.level ?? 'Short Course',
         courseType: 'Short Course',
-        startDate: new Date(`${courseSeed.startDate}T00:00:00.000Z`)
+        startDate: courseSeed.startDate ? new Date(`${courseSeed.startDate}T00:00:00.000Z`) : null,
+        fee: courseSeed.fee ?? null
       }
     })
   }
@@ -439,9 +747,19 @@ async function main() {
 
   const siteSettings = [
     ['site.footerTagline', 'Skilled labour force for the future of Tanzania.'],
-    ['site.contactPhone', '+255 22 000 0000'],
-    ['site.contactEmail', 'info@veta.go.tz'],
-    ['site.officeHours', 'Mon–Fri, 8:00am–5:00pm'],
+    ['site.contactPhone', '+255 22 284 3360 / +255 22 284 3363'],
+    ['site.contactEmail', 'kict@veta.go.tz'],
+    ['site.officeHours', '8:00 AM - 3:30 PM, Monday to Friday'],
+    ['site.physicalAddress', 'Karakata, Kipawa Ward, Ilala District, Dar es Salaam, Tanzania (near Julius Nyerere International Airport)'],
+    ['site.postalAddress', 'P.O. Box 40040, Dar es Salaam, Tanzania'],
+    ['site.mapUrl', 'https://www.google.com/maps/place/VETA+Kipawa-+ICT+CENTER/@-6.8524503,39.2112337,17.43z/data=!4m6!3m5!1s0x185c49c47717d247:0x7216aaad4e9f7ba3!8m2!3d-6.8523213!4d39.210794!16s%2Fg%2F11b6gp5v0m'],
+    ['site.mapUrlNote', 'Google Maps listing for VETA Kipawa ICT Centre, Karakata, Kipawa, Ilala, Dar es Salaam.'],
+    ['site.feedbackUrl', 'https://emrejesho.gov.go.tz'],
+    ['publicInfo.reviewStatus', 'DRAFT: Office hours and legal notices require approval by authorized VETA Kipawa management and legal/ICT officers. The map and contact details point to the VETA Kipawa ICT Centre. After review, update this setting to APPROVED in Admin → Site settings.'],
+    ['legal.privacy', 'This website may process information you provide when creating an account, submitting a course booking or application, sending an inquiry, or using other features. Depending on the feature, this may include your name, contact details, selected course or centre, and the contents of your message.\n\nThe suggested purposes are to operate the website, respond to requests, manage training enquiries and bookings, and maintain the security and functionality of the service. Any access to personal information should be limited to authorized staff whose duties require it.\n\nDo not submit passwords, payment card details, health information, or other sensitive personal information through free-text fields unless the institution has expressly requested it through an approved secure process.\n\nBefore approval, the institution must confirm the applicable lawful basis, retention periods, hosting and service providers, any data transfers, security controls, and procedures for access, correction, deletion, complaints, and data-protection requests. For questions, contact kict@veta.go.tz or +255 22 284 3360.'],
+    ['legal.terms', 'Draft terms and conditions — requires review and approval by VETA before publication.\n\nBy using this website, you agree to use it lawfully and provide accurate information when creating an account, applying, booking a course, or contacting the institution. Keep your sign-in details confidential and promptly report suspected unauthorized use.\n\nSubmitting an application or course booking is a request only. It does not guarantee admission, a place, a particular course schedule, or a start date. Enrolment and any confirmed start date are subject to a decision communicated by authorized staff. Course availability, fees, locations, and schedules must be confirmed by the institution.\n\nWebsite content and services may be updated, changed, or temporarily unavailable. Links to external websites are provided for convenience; their content and practices are controlled by their respective operators.\n\nBefore approval, VETA should confirm eligibility and age requirements, fee and payment rules, cancellation and refund terms, account suspension rules, governing law, dispute handling, and any other official conditions of service.'],
+    ['legal.disclaimer', 'Draft disclaimer — requires review and approval by VETA before publication.\n\nInformation on this website is provided for general information about training, courses, admissions, and related services. Course availability, fees, schedules, locations, and entry requirements may change and should be confirmed with the relevant VETA office before decisions are made.\n\nA submitted application or booking request is not an admission offer or guarantee of enrolment. A learner should rely on an official decision and the confirmed start date communicated by authorized staff.\n\nThe institution should review website information for accuracy, but this draft does not promise that every item is complete, current, or available at all times. External links lead to services operated by third parties and are not controlled by this website.\n\nThis draft is not legal, financial, or professional advice. VETA’s authorized officers should review and replace it with approved wording before publication.'],
+    ['legal.copyright', 'Draft copyright notice — requires confirmation by VETA before publication.\n\n© 2026 VETA Kipawa ICT Centre. All rights reserved. Unless otherwise stated, website text, design, photographs, and other materials are provided for the purposes of this website and may be protected by copyright or other applicable rights. Do not reproduce or distribute protected material without permission from its rights holder, except where permitted by law.\n\nThird-party names, marks, and materials remain the property of their respective owners. Confirm ownership, permissions, exceptions, and the approved institutional name with VETA before publishing this notice.'],
     ['home.eyebrow', 'Skills for a productive future'],
     ['home.headline', 'Learning pathways that turn talent into opportunity.'],
     ['home.description', 'VETA Tanzania connects learners, employers and training centres through practical, workplace-ready vocational programmes that support inclusive growth.'],
@@ -474,30 +792,24 @@ async function main() {
       'Receive approval and enrolment guidance'
     ])]
   ] as const
+  const preserveExistingSettings = new Set([
+    'site.mapUrl',
+    'publicInfo.reviewStatus',
+    'legal.privacy',
+    'legal.terms',
+    'legal.disclaimer',
+    'legal.copyright'
+  ])
   for (const [key, value] of siteSettings) {
+    if (preserveExistingSettings.has(key)) {
+      const existing = await prisma.siteSetting.findUnique({ where: { key } })
+      const hasOutdatedHeadOfficeDetails = /info@veta\.go\.tz|\+255 26 2963661|VETA\+HEAD\+OFFICE|VETA HEAD OFFICE|published VETA Head Office/i.test(existing?.value ?? '')
+      if (existing?.value.trim() && !hasOutdatedHeadOfficeDetails) continue
+    }
     await prisma.siteSetting.upsert({
       where: { key },
       update: { value },
       create: { key, value }
-    })
-  }
-
-  if (await prisma.review.count() === 0) {
-    await prisma.review.createMany({
-      data: [
-        {
-          userName: 'Grace M.',
-          course: 'Hospitality Management',
-          rating: 5,
-          comment: 'The practical sessions helped me gain confidence for real hospitality jobs.'
-        },
-        {
-          userName: 'Thomas S.',
-          course: 'Electrical Installation',
-          rating: 4,
-          comment: 'Excellent trainers and a very practical learning environment.'
-        }
-      ]
     })
   }
 
