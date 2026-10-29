@@ -56,7 +56,12 @@ const { getCourseCategoryForDisplay } = require("./courseCategory");
 const { parseCampaignAttribution } = require("./campaignAttribution");
 const adapter_pg_1 = require("@prisma/adapter-pg");
 const client_1 = require("./generated/prisma/client");
-dotenv_1.default.config({ path: '../.env' });
+// Load environment variables from the current working directory and the
+// repository paths used by local development. dotenv does not overwrite an
+// already defined value.
+dotenv_1.default.config();
+dotenv_1.default.config({ path: node_path_1.default.resolve(__dirname, '../.env') });
+dotenv_1.default.config({ path: node_path_1.default.resolve(__dirname, '../../.env') });
 const app = (0, express_1.default)();
 exports.app = app;
 const port = Number(process.env.PORT ?? 4000);
@@ -84,11 +89,28 @@ const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
     throw new Error('DATABASE_URL must be set in the project root .env file.');
 }
+const readPositiveInteger = (value: string | undefined, fallback: number, maximum: number): number => {
+    const parsed = Number(value ?? fallback);
+    return Number.isInteger(parsed) && parsed > 0 && parsed <= maximum ? parsed : fallback;
+};
+const databasePoolMax = readPositiveInteger(process.env.DATABASE_POOL_MAX, 10, 50);
+const databaseConnectionTimeoutMs = readPositiveInteger(process.env.DATABASE_CONNECTION_TIMEOUT_MS, 10000, 120000);
+const databaseIdleTimeoutMs = readPositiveInteger(process.env.DATABASE_IDLE_TIMEOUT_MS, 30000, 600000);
 const bcryptRounds = Number(process.env.BCRYPT_ROUNDS ?? 12);
 if (!Number.isInteger(bcryptRounds) || bcryptRounds < 10 || bcryptRounds > 14) {
     throw new Error('BCRYPT_ROUNDS must be an integer between 10 and 14.');
 }
-const prisma = new client_1.PrismaClient({ adapter: new adapter_pg_1.PrismaPg({ connectionString: databaseUrl }) });
+const prisma = new client_1.PrismaClient({
+    adapter: new adapter_pg_1.PrismaPg({
+        connectionString: databaseUrl,
+        max: databasePoolMax,
+        connectionTimeoutMillis: databaseConnectionTimeoutMs,
+        idleTimeoutMillis: databaseIdleTimeoutMs
+    }, {
+        onPoolError: (error) => console.error('PostgreSQL pool error:', error),
+        onConnectionError: (error) => console.error('PostgreSQL connection error:', error)
+    })
+});
 exports.prisma = prisma;
 app.disable('x-powered-by');
 const expiryMatch = /^(\d+)(s|m|h|d)?$/.exec(process.env.JWT_EXPIRES_IN ?? '7d');
@@ -3925,7 +3947,16 @@ app.use(async (error, req, res, _next) => {
     res.status(500).json({ message: 'An unexpected server error occurred.' });
 });
 if (require.main === module) {
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
         console.log(`Server listening on http://localhost:${port}`);
     });
+    const shutdown = async (signal: string) => {
+        console.log(`Received ${signal}; closing the HTTP and database connections.`);
+        server.close(async () => {
+            await prisma.$disconnect();
+            process.exit(0);
+        });
+    };
+    process.once('SIGTERM', () => void shutdown('SIGTERM'));
+    process.once('SIGINT', () => void shutdown('SIGINT'));
 }
