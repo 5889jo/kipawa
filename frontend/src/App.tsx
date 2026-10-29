@@ -1956,43 +1956,48 @@ function HomePage({
       </section>
 
       <section className="welcome-banner" aria-label={t('Welcome to our institute')}>
-        <div className="welcome-visual">
-          <img
-            className="welcome-principal-embed"
-            src="/principal-removebg-preview.png"
-            alt={t('Principal, VETA Kipawa ICT Centre')}
-            loading="lazy"
-            decoding="async"
-          />
-          <div className="welcome-principal-caption">
-            <strong>{t('Misai John Msengi')}</strong>
-            <span>{t('Principal, VETA Kipawa ICT Centre')}</span>
+        <div className="welcome-body">
+          <div className="welcome-visual">
+            <img
+              className="welcome-principal-embed"
+              src="/pirincipal-01.svg"
+              alt={t('Principal, VETA Kipawa ICT Centre')}
+              loading="lazy"
+              decoding="async"
+            />
+            <div className="welcome-principal-caption">
+              <strong>{t('Misai John Msengi')}</strong>
+              <span>{t('Principal, VETA Kipawa ICT Centre')}</span>
+            </div>
           </div>
-        </div>
-        <div className="welcome-content">
-          <h2 className="welcome-heading">{t('WELCOME NOTE TO OUR ESTEEMED STAKEHOLDERS')}</h2>
-          <div className="welcome-message">
-            <p className="welcome-message-intro">
-              {t('On behalf of VETA Kipawa ICT Centre, I warmly welcome our esteemed stakeholders, partners, employers, parents, students, and visitors.')}
-            </p>
-            <p>
-              {t('Our Centre is committed to delivering quality, practical, and competency-based ICT training that equips trainees with relevant skills for employment, self-employment, and innovation.')}
-            </p>
-            <p>
-              {t('We sincerely appreciate your continued support and collaboration in advancing vocational education and skills development. Together, we can bridge skills gaps, promote innovation, and contribute to national development.')}
-            </p>
-            <p className="welcome-message-closing">
-              {t('Welcome to VETA Kipawa ICT Centre. We value your partnership and look forward to working together towards a skilled and productive workforce.')}
-            </p>
-          </div>
-          <div className="welcome-actions">
-            <Link to="/long-courses" className="primary-button">
-              {t('Explore courses')}
-              <ArrowRight size={18} />
-            </Link>
-            <Link to="/about" className="secondary-button">
-              {t('About us')}
-            </Link>
+          <div className="welcome-content">
+            <div className="welcome-author-line">
+              <span className="welcome-author-dot" aria-hidden="true" />
+              <span>{t('Message from the Principal')}</span>
+            </div>
+            <div className="welcome-message">
+              <p className="welcome-message-intro">
+                {t('On behalf of VETA Kipawa ICT Centre, I warmly welcome our esteemed stakeholders, partners, employers, parents, students, and visitors.')}
+              </p>
+              <p>
+                {t('Our Centre is committed to delivering quality, practical, and competency-based ICT training that equips trainees with relevant skills for employment, self-employment, and innovation.')}
+              </p>
+              <p>
+                {t('We sincerely appreciate your continued support and collaboration in advancing vocational education and skills development. Together, we can bridge skills gaps, promote innovation, and contribute to national development.')}
+              </p>
+              <p className="welcome-message-closing">
+                {t('Welcome to VETA Kipawa ICT Centre. We value your partnership and look forward to working together towards a skilled and productive workforce.')}
+              </p>
+            </div>
+            <div className="welcome-actions">
+              <Link to="/about" className="primary-button">
+                {t('Read more')}
+                <ArrowRight size={18} />
+              </Link>
+              <Link to="/long-courses" className="secondary-button">
+                {t('Explore courses')}
+              </Link>
+            </div>
           </div>
         </div>
       </section>
@@ -2102,7 +2107,7 @@ function HomePage({
             {otherNews.map((item, index) => (
               <article key={`${item.id}-${index}`} className="news-list-card has-image">
                 <img
-                  src={item.imageUrl ? getMediaUrl(item.imageUrl) : '/aboutuspichacava-01.webp'}
+                  src={item.imageUrl ? getMediaUrl(item.imageUrl) : '/bgimage.jpeg'}
                   alt={item.imageUrl ? item.title : ''}
                   loading="lazy"
                   decoding="async"
@@ -2714,7 +2719,7 @@ function AboutPage() {
         <section className="about-authority-introduction" aria-labelledby="about-introduction-title">
           <figure className="about-authority-figure">
             <img
-              src="/aboutuspichacava-01.webp"
+              src="/bgimage.jpeg"
               alt={t('VETA Kipawa ICT Centre building')}
               loading="lazy"
               decoding="async"
@@ -2730,9 +2735,9 @@ function AboutPage() {
               </div>
             </div>
             <p>
-              {t('The Vocational Education and Training Authority')}{' '}
+              {t('VETA Kipawa ICT Centre is part of the national vocational education and training system coordinated by the Vocational Education and Training Authority')}{' '}
               <a href="https://www.youtube.com/watch?v=1ikXGzelu7s" target="_blank" rel="noreferrer">(VETA)</a>{' '}
-              {t('is an autonomous Government Agency established under the Vocational Education and Training Act, Chapter 82 charged with the duties of providing, financing and coordinating vocational education and training in the country.')}
+              {t('an autonomous Government Agency established under the Vocational Education and Training Act, Chapter 82. The Centre provides practical, quality-driven ICT skills that respond to labour-market needs and support employment, self-employment and socio-economic development.')}
             </p>
             <div className="about-authority-purpose-grid is-compact">
               <section id="mission" className="about-authority-purpose-card is-mission is-compact" aria-labelledby="about-mission-title">
