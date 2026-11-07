@@ -47,13 +47,17 @@ const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const morgan_1 = __importDefault(require("morgan"));
 const { canAccessAdminBookingPath, canSubmitCourseRequest, getAdminBookingDataAccess } = require("./adminBookingAccess");
+const { canSubmitCourseApplication, getCourseInterestActionStatuses } = require("./courseInterestWorkflow");
+const { canAssignRole } = require("./adminRoleAccess");
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const dotenv_1 = __importDefault(require("dotenv"));
-const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const multer_1 = __importStar(require("multer"));
 const { getCourseCategoryForDisplay } = require("./courseCategory");
 const { parseCampaignAttribution } = require("./campaignAttribution");
+const { softenTickerBadgeDarkBackground, TickerBadgeImageError } = require("./tickerBadgeImage");
+const { buildPasswordResetUrl, createPasswordResetToken, hashPasswordResetToken, sendPasswordResetEmail } = require("./passwordReset");
 const adapter_pg_1 = require("@prisma/adapter-pg");
 const client_1 = require("./generated/prisma/client");
 // Load environment variables from the current working directory and the
@@ -71,12 +75,16 @@ const courseUploadDirectory = node_path_1.default.resolve(__dirname, '..', 'uplo
 const organizationUploadDirectory = node_path_1.default.resolve(__dirname, '..', 'uploads', 'organization');
 const partnerUploadDirectory = node_path_1.default.resolve(__dirname, '..', 'uploads', 'partners');
 const publicationUploadDirectory = node_path_1.default.resolve(__dirname, '..', 'uploads', 'publications');
+const labUploadDirectory = node_path_1.default.resolve(__dirname, '..', 'uploads', 'labs');
+const tickerBadgeUploadDirectory = node_path_1.default.resolve(__dirname, '..', 'uploads', 'ticker-badges');
 const paymentProofUploadDirectory = node_path_1.default.resolve(__dirname, '..', 'uploads', 'payment-proofs');
 (0, node_fs_1.mkdirSync)(newsUploadDirectory, { recursive: true });
 (0, node_fs_1.mkdirSync)(courseUploadDirectory, { recursive: true });
 (0, node_fs_1.mkdirSync)(organizationUploadDirectory, { recursive: true });
 (0, node_fs_1.mkdirSync)(partnerUploadDirectory, { recursive: true });
 (0, node_fs_1.mkdirSync)(publicationUploadDirectory, { recursive: true });
+(0, node_fs_1.mkdirSync)(labUploadDirectory, { recursive: true });
+(0, node_fs_1.mkdirSync)(tickerBadgeUploadDirectory, { recursive: true });
 (0, node_fs_1.mkdirSync)(paymentProofUploadDirectory, { recursive: true });
 const jwtSecret = process.env.JWT_SECRET;
 if (!jwtSecret) {
@@ -165,6 +173,10 @@ class OrganizationImageUploadError extends Error {
 }
 class PartnerLogoUploadError extends Error {
 }
+class LabImageUploadError extends Error {
+}
+class TickerBadgeUploadError extends Error {
+}
 const newsImageExtensions = {
     'image/jpeg': '.jpg',
     'image/png': '.png',
@@ -195,6 +207,12 @@ const partnerLogoExtensions = {
     'image/png': '.png',
     'image/webp': '.webp'
 };
+const labImageExtensions = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp'
+};
+const tickerBadgeExtensions = { 'image/gif': '.gif' };
 const paymentProofExtensions = {
     'image/jpeg': '.jpg',
     'image/png': '.png',
@@ -254,6 +272,52 @@ const organizationImageUpload = (0, multer_1.default)({
         callback(null, true);
     }
 }).single('profileImage');
+const labImageUpload = (0, multer_1.default)({
+    storage: multer_1.default.diskStorage({
+        destination: (_req, _file, callback) => callback(null, labUploadDirectory),
+        filename: (_req, file, callback) => callback(null, `${(0, node_crypto_1.randomUUID)()}${labImageExtensions[file.mimetype]}`)
+    }),
+    limits: { fileSize: 5 * 1024 * 1024, files: 9, fields: 20, fieldSize: 256 * 1024, parts: 30 },
+    fileFilter: (_req, file, callback) => {
+        if (!['featuredImage', 'relatedImages'].includes(file.fieldname) || !labImageExtensions[file.mimetype]) {
+            callback(new LabImageUploadError('Upload lab photos in JPEG, PNG, or WebP format.'));
+            return;
+        }
+        callback(null, true);
+    }
+}).fields([{ name: 'featuredImage', maxCount: 1 }, { name: 'relatedImages', maxCount: 8 }]);
+const tickerBadgeUpload = (0, multer_1.default)({
+    storage: multer_1.default.diskStorage({
+        destination: (_req, _file, callback) => callback(null, tickerBadgeUploadDirectory),
+        filename: (_req, _file, callback) => callback(null, `${(0, node_crypto_1.randomUUID)()}.gif`)
+    }),
+    limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 10, fieldSize: 256 * 1024, parts: 12 },
+    fileFilter: (_req, file, callback) => {
+        if (file.fieldname !== 'badgeImage' || !tickerBadgeExtensions[file.mimetype]) {
+            callback(new TickerBadgeUploadError('Upload the ticker badge as a GIF image.'));
+            return;
+        }
+        callback(null, true);
+    }
+}).single('badgeImage');
+const uploadTickerBadge = (req, res, next) => {
+    tickerBadgeUpload(req, res, (error) => {
+        if (error) {
+            next(error);
+            return;
+        }
+        next();
+    });
+};
+const uploadLabImages = (req, res, next) => {
+    labImageUpload(req, res, (error) => {
+        if (error) {
+            next(error);
+            return;
+        }
+        next();
+    });
+};
 const uploadOrganizationImage = (req, res, next) => {
     organizationImageUpload(req, res, (error) => {
         if (error) {
@@ -611,6 +675,67 @@ const removePartnerLogo = async (imageUrl) => {
         throw error;
     }
 };
+const labImageKeys = ['multimedia', 'web-design', 'computer-maintenance', 'electronics', 'electrical', 'mechatronics'];
+const isValidLabImageUrl = (value) => typeof value === 'string' &&
+    /^\/uploads\/labs\/[\w-]+\.(jpg|png|webp)$/i.test(value);
+const parseLabImageSettings = (value) => {
+    if (!value)
+        return {};
+    let parsed;
+    try {
+        parsed = JSON.parse(value);
+    }
+    catch {
+        throw new Error('Stored lab image settings contain invalid JSON.');
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+        throw new Error('Stored lab image settings must be an object.');
+    const settings = {};
+    for (const [key, images] of Object.entries(parsed)) {
+        if (!labImageKeys.includes(key) || typeof images !== 'object' || images === null || Array.isArray(images))
+            throw new Error('Stored lab image settings contain an invalid lab entry.');
+        const featured = images.featured ?? null;
+        const related = images.related ?? [];
+        if ((featured !== null && !isValidLabImageUrl(featured)) ||
+            !Array.isArray(related) || related.length > 8 || !related.every(isValidLabImageUrl)) {
+            throw new Error('Stored lab image settings contain an invalid image path.');
+        }
+        settings[key] = { featured, related: [...new Set(related)] };
+    }
+    return settings;
+};
+const getLabImageUrls = (settings) => Object.values(settings).flatMap(({ featured, related }) => [
+    ...(featured ? [featured] : []),
+    ...related
+]);
+const removeLabImage = async (imageUrl) => {
+    if (!isValidLabImageUrl(imageUrl))
+        throw new Error('Stored lab image path is invalid.');
+    const filename = node_path_1.default.basename(imageUrl);
+    try {
+        await (0, promises_1.unlink)(node_path_1.default.join(labUploadDirectory, filename));
+    }
+    catch (error) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT')
+            return;
+        throw error;
+    }
+};
+const isValidTickerBadgeUrl = (value) => typeof value === 'string' &&
+    /^\/uploads\/ticker-badges\/[\w-]+\.gif$/i.test(value);
+const removeTickerBadge = async (imageUrl) => {
+    if (!isValidTickerBadgeUrl(imageUrl))
+        throw new Error('Stored ticker badge path is invalid.');
+    const filename = node_path_1.default.basename(imageUrl);
+    try {
+        await (0, promises_1.unlink)(node_path_1.default.join(tickerBadgeUploadDirectory, filename));
+    }
+    catch (error) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT')
+            return;
+        throw error;
+    }
+};
 const userWithRoles = {
     roles: {
         include: {
@@ -618,7 +743,7 @@ const userWithRoles = {
         }
     }
 };
-const adminPermissions = ['users', 'courses', 'news', 'shortCourseEnquiries', 'bookings', 'publications', 'siteSettings', 'organizationStructure', 'partners'];
+const adminPermissions = ['users', 'courses', 'shortCourseCourses', 'news', 'shortCourseEnquiries', 'bookings', 'publications', 'siteSettings', 'organizationStructure', 'partners'];
 const adminSectionPermissions = {
     users: 'users',
     courses: 'courses',
@@ -628,23 +753,35 @@ const adminSectionPermissions = {
     bookings: 'bookings',
     publications: 'publications',
     'site-settings': 'siteSettings',
+    'lab-images': 'siteSettings',
+    'short-course-ticker-badge': 'siteSettings',
     'organization-structure': 'organizationStructure',
     partners: 'partners'
 };
 const isAdminRole = (role) => role?.name.toLowerCase() === 'admin';
+const isCourseCoordinatorRole = (role) => ['course coordinator', 'short course coordinator']
+    .includes(role?.name.trim().toLowerCase());
 const getAssignedRole = (user) => user.roles.find(({ role }) => isAdminRole(role))?.role ?? user.roles[0]?.role;
 const getRole = (user) => {
     const role = getAssignedRole(user);
     if (!role || ['applicant', 'user'].includes(role.name.toLowerCase()))
         return 'user';
+    if (isCourseCoordinatorRole(role))
+        return 'Course Coordinator';
     return isAdminRole(role) ? 'admin' : role.name;
 };
-const getPermissions = (user) => user.roles.some(({ role }) => isAdminRole(role))
-    ? adminPermissions
-    : [...new Set(user.roles.flatMap(({ role }) => role.permissions)
-        .filter((permission) => adminPermissions.includes(permission)))];
-const canAssignRole = (actor, role) => actor.role === 'admin' ||
-    (!isAdminRole(role) && role.permissions.every((permission) => actor.permissions.includes(permission)));
+const getPermissions = (user) => {
+    if (user.roles.some(({ role }) => isAdminRole(role)))
+        return adminPermissions;
+    const permissions = user.roles.flatMap(({ role }) => role.permissions)
+        .filter((permission) => adminPermissions.includes(permission));
+    if (user.roles.some(({ role }) => isCourseCoordinatorRole(role))) {
+        permissions.push('courses', 'shortCourseEnquiries');
+    }
+    return [...new Set(permissions)];
+};
+const isShortCourseOnlyManager = (user) => user.role !== 'admin' &&
+    user.permissions.includes('shortCourseCourses') && !user.permissions.includes('courses');
 const sanitizeUser = (user) => ({
     id: String(user.id),
     name: `${user.firstName} ${user.lastName}`.trim(),
@@ -785,7 +922,9 @@ const requireAdmin = (req, res, next) => {
     }
     const section = req.path.split('/')[1];
     const permission = adminSectionPermissions[section];
-    const allowed = section === 'data'
+    const allowed = section === 'courses' && isShortCourseOnlyManager(user)
+        ? true
+        : section === 'data'
         ? user.permissions.length > 0
         : section === 'overview'
             ? user.permissions.length > 0
@@ -847,12 +986,16 @@ const parseCourseCentres = (value) => {
     if (value === undefined)
         return undefined;
     if (Array.isArray(value))
-        return value.every((centre) => typeof centre === 'string') ? value : null;
+        return value.every((centre) => typeof centre === 'string')
+            ? [...new Set(value.map((centre) => centre.trim()).filter(Boolean))]
+            : null;
     if (typeof value !== 'string')
         return null;
     try {
         const centres = JSON.parse(value);
-        return Array.isArray(centres) && centres.every((centre) => typeof centre === 'string') ? centres : null;
+        return Array.isArray(centres) && centres.every((centre) => typeof centre === 'string')
+            ? [...new Set(centres.map((centre) => centre.trim()).filter(Boolean))]
+            : null;
     }
     catch {
         return null;
@@ -918,6 +1061,16 @@ app.use('/uploads/partners', (_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     next();
 }, express_1.default.static(partnerUploadDirectory, { dotfiles: 'deny', index: false }));
+app.use('/uploads/labs', (_req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+}, express_1.default.static(labUploadDirectory, { dotfiles: 'deny', index: false }));
+app.use('/uploads/ticker-badges', (_req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+}, express_1.default.static(tickerBadgeUploadDirectory, { dotfiles: 'deny', index: false }));
 app.use('/uploads/publications', (_req, res, next) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -1289,6 +1442,7 @@ app.get('/api/site-settings', async (_req, res) => {
                         { key: { startsWith: 'site.' } },
                         { key: { startsWith: 'home.' } },
                         { key: { startsWith: 'about.' } },
+                        { key: { startsWith: 'labs.' } },
                         { key: { startsWith: 'admissions.' } },
                         { key: { startsWith: 'legal.' } },
                         { key: { startsWith: 'publicInfo.' } }
@@ -1342,7 +1496,7 @@ app.post('/api/site-stats/visitor', async (req, res) => {
     res.json({ visitorCount });
 });
 app.get('/api/site-stats', async (_req, res) => {
-    const [visitorTotals, shortCourses, longCourses, enrolledStudents, staff] = await Promise.all([
+    const [visitorTotals, shortCourses, longCourses, enrolledStudents, staff, homepageStats] = await Promise.all([
         prisma.websiteDailyVisitorCount.aggregate({ _sum: { count: true } }),
         prisma.course.count({ where: { courseType: 'Short Course' } }),
         prisma.course.count({ where: { courseType: { not: 'Short Course' } } }),
@@ -1355,14 +1509,22 @@ app.get('/api/site-stats', async (_req, res) => {
             distinct: ['userId'],
             select: { userId: true }
         }),
-        prisma.organizationMember.count({ where: { isPublished: true } })
+        prisma.organizationMember.count({ where: { isPublished: true } }),
+        prisma.siteSetting.findMany({
+            where: { key: { in: ['home.statsStudents', 'home.statsStaff'] } },
+            select: { key: true, value: true }
+        })
     ]);
     const visitorCount = visitorTotals._sum.count ?? 0;
+    const homepageStatValues = Object.fromEntries(homepageStats.map(({ key, value }) => [key, value]));
+    const getHomepageStat = (key, fallback) => /^(0|[1-9]\d{0,8})$/.test(homepageStatValues[key] ?? '')
+        ? Number(homepageStatValues[key])
+        : fallback;
     const data = [
         { key: 'shortCourses', value: shortCourses, label: 'Short Courses' },
         { key: 'longCourses', value: longCourses, label: 'Long Courses' },
-        { key: 'students', value: enrolledStudents.length, label: 'Students' },
-        { key: 'staff', value: staff, label: 'Staff' },
+        { key: 'students', value: getHomepageStat('home.statsStudents', enrolledStudents.length), label: 'Students' },
+        { key: 'staff', value: getHomepageStat('home.statsStaff', staff), label: 'Staff' },
         { key: 'visitors', value: visitorCount, label: 'Website visitors' }
     ];
     res.json({
@@ -1388,7 +1550,7 @@ app.post('/api/auth/register', (_req, res) => {
                     firstName: nameParts[0],
                     lastName: nameParts.slice(1).join(' ') || nameParts[0],
                     phone: normalizedPhone,
-                    passwordHash: await bcryptjs_1.default.hash(password, bcryptRounds)
+                    passwordHash: await bcrypt_1.default.hash(password, bcryptRounds)
                 },
                 include: userWithRoles
             });
@@ -1405,6 +1567,103 @@ app.post('/api/auth/register', (_req, res) => {
         }
     })();
 });
+app.post('/api/auth/forgot-password', async (req, res) => {
+    const email = req.body?.email;
+    if (typeof email !== 'string' || email.trim().length > 254 ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        res.status(400).json({ message: 'Enter a valid email address.' });
+        return;
+    }
+
+    const genericResponse = {
+        message: 'If an active account uses that email address, a password reset link will be sent.'
+    };
+    const apiKey = process.env.RESEND_API_KEY?.trim();
+    const from = process.env.EMAIL_FROM?.trim();
+    if (!apiKey || !from) {
+        console.error('Password reset email is unavailable because RESEND_API_KEY or EMAIL_FROM is not configured.');
+        res.status(503).json({ message: 'Password reset email is temporarily unavailable. Please contact the centre.' });
+        return;
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email: email.trim().toLowerCase() },
+            select: { id: true, email: true, firstName: true, isActive: true }
+        });
+        if (!user || !user.isActive) {
+            res.json(genericResponse);
+            return;
+        }
+
+        const { token, tokenHash } = createPasswordResetToken();
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        await prisma.$transaction([
+            prisma.passwordResetToken.deleteMany({ where: { expiresAt: { lte: new Date() } } }),
+            prisma.passwordResetToken.create({ data: { tokenHash, userId: user.id, expiresAt } })
+        ]);
+        const delivery = await sendPasswordResetEmail({
+            apiKey,
+            from,
+            to: user.email,
+            name: user.firstName,
+            resetUrl: buildPasswordResetUrl(configuredClientOrigins[0], token)
+        });
+        if (delivery.status !== 'accepted') {
+            await prisma.passwordResetToken.deleteMany({ where: { tokenHash } });
+            console.error('Password reset email could not be delivered:', delivery.status === 'failed' ? delivery.reason : 'email provider is not configured.');
+            res.json(genericResponse);
+            return;
+        }
+        res.json(genericResponse);
+    }
+    catch (error) {
+        console.error('Password reset request failed:', error);
+        res.status(500).json({ message: 'Unable to process the password reset request right now.' });
+    }
+});
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { token, password } = req.body ?? {};
+    if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token) ||
+        typeof password !== 'string' || password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
+        res.status(400).json({ message: 'Use a valid reset link and a password between 8 and 72 bytes.' });
+        return;
+    }
+
+    try {
+        const tokenHash = hashPasswordResetToken(token);
+        const passwordHash = await bcrypt_1.default.hash(password, bcryptRounds);
+        const result = await prisma.$transaction(async (transaction) => {
+            const resetToken = await transaction.passwordResetToken.findUnique({
+                where: { tokenHash },
+                select: { userId: true, expiresAt: true }
+            });
+            if (!resetToken || resetToken.expiresAt <= new Date()) return false;
+
+            const consumedToken = await transaction.passwordResetToken.deleteMany({
+                where: { tokenHash, expiresAt: { gt: new Date() } }
+            });
+            if (consumedToken.count !== 1) return false;
+
+            await transaction.user.update({
+                where: { id: resetToken.userId },
+                data: { passwordHash }
+            });
+            await transaction.passwordResetToken.deleteMany({ where: { userId: resetToken.userId } });
+            return true;
+        });
+        if (!result) {
+            res.status(400).json({ message: 'This password reset link is invalid or has expired. Request a new one.' });
+            return;
+        }
+        res.clearCookie(sessionCookieName, clearedCookieOptions);
+        res.json({ message: 'Your password has been reset. You can now sign in with your new password.' });
+    }
+    catch (error) {
+        console.error('Password reset completion failed:', error);
+        res.status(500).json({ message: 'Unable to reset your password right now.' });
+    }
+});
 app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     if (typeof email !== 'string' || email.trim().length > 254 ||
@@ -1416,7 +1675,7 @@ app.post('/api/auth/login', async (req, res) => {
         where: { email: email.trim().toLowerCase() },
         include: userWithRoles
     });
-    if (!user || !(await bcryptjs_1.default.compare(password, user.passwordHash))) {
+    if (!user || !(await bcrypt_1.default.compare(password, user.passwordHash))) {
         res.status(401).json({ message: 'Invalid email or password.' });
         return;
     }
@@ -1507,7 +1766,6 @@ app.get('/api/course-interests', authMiddleware, async (req, res) => {
             message: interest.message ?? '',
             confirmedStartDate: interest.confirmedStartDate?.toISOString() ?? null,
             createdAt: interest.createdAt.toISOString(),
-            courseChoiceEditableUntil: new Date(interest.createdAt.getTime() + 72 * 60 * 60 * 1000).toISOString(),
             updatedAt: interest.updatedAt.toISOString()
         }))
     });
@@ -1655,11 +1913,9 @@ app.patch('/api/course-interests/:id/course', authMiddleware, requireCourseReque
         res.status(404).json({ message: 'Course request not found.' });
         return;
     }
-    const editableUntil = new Date(interest.createdAt.getTime() + 72 * 60 * 60 * 1000);
     const editableStatus = ['new', 'contacted'].includes(interest.status);
-    if (!editableStatus || interest.controlNumber || interest.paymentProofPath ||
-        interest.formFeePaidAt || Date.now() >= editableUntil.getTime()) {
-        res.status(409).json({ message: 'Your course choice is locked because payment processing has started, a control number has been issued, or three days have passed.' });
+    if (!editableStatus || interest.controlNumber) {
+        res.status(409).json({ message: 'Your course choice can only be changed before the centre issues a payment control number.' });
         return;
     }
     const course = await prisma.course.findUnique({
@@ -1682,12 +1938,11 @@ app.patch('/api/course-interests/:id/course', authMiddleware, requireCourseReque
             userId: req.user.id,
             status: { in: ['new', 'contacted'] },
             controlNumber: null,
-            paymentProofPath: null,
-            formFeePaidAt: null,
-            createdAt: { gt: new Date(Date.now() - 72 * 60 * 60 * 1000) }
         },
         data: {
-            courseId: course.id
+            courseId: course.id,
+            course: course.name,
+            courseType: course.courseType
         }
     });
     if (result.count !== 1) {
@@ -1768,7 +2023,7 @@ app.post('/api/course-interests/:id/application', authMiddleware, requireCourseR
     const interest = await prisma.courseInterest.findFirst({
         where: { id, userId: req.user.id }
     });
-    if (!interest || !['form_fee_verified', 'application_needs_changes'].includes(interest.status)) {
+    if (!interest || !canSubmitCourseApplication(interest.status, Boolean(interest.userId))) {
         res.status(409).json({ message: 'The full application form is available after staff verify your form fee.' });
         return;
     }
@@ -1878,6 +2133,31 @@ app.get('/api/bookings', authMiddleware, async (req, res) => {
     });
 });
 app.use('/api/admin', authMiddleware, requireAdmin);
+app.use('/api/admin', (req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+        next();
+        return;
+    }
+    res.on('finish', () => {
+        if (res.statusCode < 200 || res.statusCode >= 400 || !req.user)
+            return;
+        void prisma.auditLog.create({
+            data: {
+                actor: `user:${req.user.id}`,
+                action: `admin.${req.method.toLowerCase()}`,
+                details: JSON.stringify({
+                    path: `${req.baseUrl}${req.path}`,
+                    statusCode: res.statusCode,
+                    role: req.user.role,
+                    permissions: req.user.permissions
+                })
+            }
+        }).catch((error) => {
+            console.error('Unable to write admin audit log:', error);
+        });
+    });
+    next();
+});
 app.get('/api/admin/overview', async (req, res) => {
     const canViewUsers = req.user.role === 'admin' || req.user.permissions.includes('users');
     const bookingAccess = getAdminBookingDataAccess(req.user.role, req.user.permissions);
@@ -1910,7 +2190,9 @@ app.get('/api/admin/overview', async (req, res) => {
     });
 });
 app.get('/api/admin/data', async (req, res) => {
-    const canManage = (permission) => req.user.role === 'admin' || req.user.permissions.includes(permission);
+    const shortCourseOnly = isShortCourseOnlyManager(req.user);
+    const canManage = (permission) => req.user.role === 'admin' || req.user.permissions.includes(permission) ||
+        (permission === 'courses' && shortCourseOnly);
     const bookingAccess = getAdminBookingDataAccess(req.user.role, req.user.permissions);
     const [users, roles, courses, databaseCourseCategories, publicationCourses, centres, articles, publications, bookings, courseBookings, settings, organizationMembers, partners] = await Promise.all([
         canManage('users') ? prisma.user.findMany({
@@ -1919,6 +2201,7 @@ app.get('/api/admin/data', async (req, res) => {
         }) : Promise.resolve([]),
         canManage('users') ? prisma.role.findMany({ orderBy: { name: 'asc' } }) : Promise.resolve([]),
         canManage('courses') ? prisma.course.findMany({
+            where: shortCourseOnly ? { courseType: 'Short Course' } : undefined,
             include: {
                 centres: { include: { centre: true } },
                 media: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
@@ -2149,6 +2432,10 @@ app.post('/api/admin/roles', async (req, res) => {
         res.status(400).json({ message: 'Enter a unique role name, a description of up to 300 characters, and valid permissions.' });
         return;
     }
+    if (!canAssignRole(req.user, { name: normalizedName, permissions })) {
+        res.status(403).json({ message: 'You cannot grant role permissions you do not have.' });
+        return;
+    }
     const duplicate = await prisma.role.findFirst({ where: { name: { equals: normalizedName, mode: 'insensitive' } } });
     if (duplicate) {
         res.status(409).json({ message: 'A role with this name already exists.' });
@@ -2191,6 +2478,13 @@ app.patch('/api/admin/roles/:id', async (req, res) => {
     }
     if (isAdminRole(existing) || existing.name.toLowerCase() === 'applicant') {
         res.status(400).json({ message: 'The Admin and applicant roles are reserved and cannot be changed.' });
+        return;
+    }
+    if (!canAssignRole(req.user, {
+        name: normalizedName ?? existing.name,
+        permissions: permissions ?? existing.permissions
+    })) {
+        res.status(403).json({ message: 'You cannot grant role permissions you do not have.' });
         return;
     }
     if (normalizedName !== undefined) {
@@ -2236,6 +2530,10 @@ app.delete('/api/admin/roles/:id', async (req, res) => {
         res.status(400).json({ message: 'The Admin and applicant roles cannot be deleted.' });
         return;
     }
+    if (!canAssignRole(req.user, role)) {
+        res.status(403).json({ message: 'You cannot manage a role with permissions you do not have.' });
+        return;
+    }
     const assignedUsers = await prisma.userRole.count({ where: { roleId: id } });
     if (assignedUsers > 0) {
         res.status(409).json({ message: 'Reassign users before deleting this role.' });
@@ -2276,7 +2574,7 @@ app.post('/api/admin/users', async (req, res) => {
                 firstName: nameParts[0],
                 lastName: nameParts.slice(1).join(' ') || nameParts[0],
                 phone: normalizedPhone,
-                passwordHash: await bcryptjs_1.default.hash(password, bcryptRounds),
+                passwordHash: await bcrypt_1.default.hash(password, bcryptRounds),
                 roles: { create: { role: { connect: { id: assignedRole.id } } } }
             },
             include: userWithRoles
@@ -2423,6 +2721,11 @@ app.post('/api/admin/courses', uploadCourseImage, async (req, res) => {
     const { name, nameSw, level, levelSw, duration, durationSw, description, descriptionSw, courseType, category, startDate, endDate, publishedFrom, publishedUntil, fee, imageUrl } = req.body;
     const courseImage = getUploadedCourseImage(req);
     const courseMediaFiles = getUploadedCourseMedia(req);
+    if (isShortCourseOnlyManager(req.user) && courseType !== 'Short Course') {
+        await removeUploadedCourseImage(req);
+        res.status(403).json({ message: 'Short-course coordinators can manage short courses only.' });
+        return;
+    }
     const centreNames = parseCourseCentres(req.body.centres);
     const normalizedStartDate = startDate === undefined ? undefined : startDate === '' || startDate === null ? null : startDate;
     const normalizedEndDate = endDate === undefined ? undefined : endDate === '' || endDate === null ? null : endDate;
@@ -2569,6 +2872,11 @@ app.patch('/api/admin/courses/:id', uploadCourseImage, async (req, res) => {
             res.status(404).json({ message: 'Course not found.' });
             return;
         }
+        if (isShortCourseOnlyManager(req.user) && existingCourse.courseType !== 'Short Course') {
+            await removeUploadedCourseImage(req);
+            res.status(403).json({ message: 'Short-course coordinators can manage short courses only.' });
+            return;
+        }
         const effectivePublishedFrom = normalizedPublishedFrom === undefined
             ? existingCourse.publishedFrom?.toISOString().slice(0, 10) ?? null
             : normalizedPublishedFrom;
@@ -2576,6 +2884,11 @@ app.patch('/api/admin/courses/:id', uploadCourseImage, async (req, res) => {
             ? existingCourse.publishedUntil?.toISOString().slice(0, 10) ?? null
             : normalizedPublishedUntil;
         const effectiveCourseType = courseType ?? existingCourse.courseType;
+        if (isShortCourseOnlyManager(req.user) && effectiveCourseType !== 'Short Course') {
+            await removeUploadedCourseImage(req);
+            res.status(403).json({ message: 'Short-course coordinators can manage short courses only.' });
+            return;
+        }
         const effectiveStartDate = normalizedStartDate === undefined
             ? existingCourse.startDate ? courseDateKey(existingCourse.startDate) : null
             : normalizedStartDate?.slice(0, 10) ?? null;
@@ -2688,6 +3001,10 @@ app.delete('/api/admin/courses/:id', async (req, res) => {
     const course = await prisma.course.findUnique({ where: { id } });
     if (!course) {
         res.status(404).json({ message: 'Course not found.' });
+        return;
+    }
+    if (isShortCourseOnlyManager(req.user) && course.courseType !== 'Short Course') {
+        res.status(403).json({ message: 'Short-course coordinators can manage short courses only.' });
         return;
     }
     const courseMedia = await prisma.courseMedia.findMany({ where: { courseId: id } });
@@ -3368,17 +3685,7 @@ app.patch(['/api/admin/bookings/requests/:id', '/api/admin/course-interests/:id'
         res.status(404).json({ message: 'Booking not found.' });
         return;
     }
-    const expectedStatuses = {
-        contacted: ['new'],
-        verify_phone: ['new'],
-        issue_control_number: ['new'],
-        verify_form_fee: interest.userId ? ['payment_submitted'] : ['contacted'],
-        reject_form_fee: ['payment_submitted'],
-        verify_course_fee: ['form_fee_verified'],
-        request_application_changes: ['application_submitted'],
-        decline_application: ['application_submitted'],
-        send_start_date: interest.userId ? ['application_submitted'] : ['course_fee_verified']
-    }[action];
+    const expectedStatuses = getCourseInterestActionStatuses(action, Boolean(interest.userId));
     if (!expectedStatuses.includes(interest.status)) {
         res.status(409).json({ message: 'Complete the previous follow-up step before moving this booking forward.' });
         return;
@@ -3854,8 +4161,157 @@ app.delete('/api/admin/partners/:id', async (req, res) => {
     }
     res.json({ message: 'Partner deleted.' });
 });
+app.post('/api/admin/lab-images', uploadLabImages, async (req, res) => {
+    const reject = async (status, message) => {
+        try {
+            await removeRequestUploads(req);
+        }
+        catch (cleanupError) {
+            console.error('Unable to clean up rejected lab image upload:', cleanupError);
+        }
+        res.status(status).json({ message });
+    };
+    const labKey = req.body.labKey;
+    const clearFeaturedImage = req.body.clearFeaturedImage;
+    if (!labImageKeys.includes(labKey)) {
+        await reject(400, 'Choose a valid lab area.');
+        return;
+    }
+    if (clearFeaturedImage !== undefined && !['true', 'false'].includes(clearFeaturedImage)) {
+        await reject(400, 'The featured image removal option is invalid.');
+        return;
+    }
+    const files = req.files ?? {};
+    const featuredFile = files.featuredImage?.[0];
+    const relatedFiles = files.relatedImages ?? [];
+    if (featuredFile && clearFeaturedImage === 'true') {
+        await reject(400, 'Choose a featured image or remove the current one, not both.');
+        return;
+    }
+    const siteSetting = await prisma.siteSetting.findUnique({
+        where: { key: 'labs.images' },
+        select: { value: true }
+    });
+    const previousSettings = parseLabImageSettings(siteSetting?.value ?? null);
+    const currentImages = previousSettings[labKey] ?? { featured: null, related: [] };
+    const requestedRelated = req.body.relatedImageUrls === undefined
+        ? []
+        : Array.isArray(req.body.relatedImageUrls)
+            ? req.body.relatedImageUrls
+            : [req.body.relatedImageUrls];
+    if (!requestedRelated.every((imageUrl) => typeof imageUrl === 'string' &&
+        currentImages.related.includes(imageUrl)) ||
+        new Set(requestedRelated).size !== requestedRelated.length) {
+        await reject(400, 'The related image selection is invalid. Refresh and try again.');
+        return;
+    }
+    const featured = featuredFile
+        ? `/uploads/labs/${featuredFile.filename}`
+        : clearFeaturedImage === 'true'
+            ? null
+            : currentImages.featured;
+    const related = [
+        ...requestedRelated,
+        ...relatedFiles.map((file) => `/uploads/labs/${file.filename}`)
+    ];
+    if (related.length > 8) {
+        await reject(400, 'Each lab can have up to eight related images.');
+        return;
+    }
+    const nextSettings = {
+        ...previousSettings,
+        [labKey]: { featured, related }
+    };
+    await prisma.siteSetting.upsert({
+        where: { key: 'labs.images' },
+        update: { value: JSON.stringify(nextSettings) },
+        create: { key: 'labs.images', value: JSON.stringify(nextSettings) }
+    });
+    const retainedUrls = new Set(getLabImageUrls(nextSettings));
+    const removedUrls = getLabImageUrls(previousSettings).filter((imageUrl) => !retainedUrls.has(imageUrl));
+    await Promise.all(removedUrls.map(async (imageUrl) => {
+        try {
+            await removeLabImage(imageUrl);
+        }
+        catch (cleanupError) {
+            console.error('Unable to remove replaced lab image:', cleanupError);
+        }
+    }));
+    res.json({ message: 'Lab images saved.', settings: nextSettings });
+});
+app.post('/api/admin/short-course-ticker-badge', uploadTickerBadge, async (req, res) => {
+    const shouldRemove = req.body.removeBadge === 'true';
+    if (req.body.removeBadge !== undefined && !['true', 'false'].includes(req.body.removeBadge)) {
+        throw new TickerBadgeUploadError('The ticker badge removal option is invalid.');
+    }
+    if ((req.file && shouldRemove) || (!req.file && !shouldRemove)) {
+        if (req.file) {
+            throw new TickerBadgeUploadError('Upload a GIF badge or choose to remove the current badge, not both.');
+        }
+        res.status(400).json({ message: 'Upload a GIF badge or choose to remove the current badge.' });
+        return;
+    }
+    if (req.file) {
+        const uploadedGif = await (0, promises_1.readFile)(req.file.path);
+        const header = uploadedGif.subarray(0, 6);
+        if (header.toString('ascii') !== 'GIF87a' && header.toString('ascii') !== 'GIF89a') {
+            throw new TickerBadgeUploadError('The uploaded file is not a valid GIF image.');
+        }
+        try {
+            const softenedGif = await softenTickerBadgeDarkBackground(uploadedGif);
+            await (0, promises_1.writeFile)(req.file.path, softenedGif);
+        }
+        catch (error) {
+            if (error instanceof TickerBadgeImageError) {
+                throw new TickerBadgeUploadError(error.message);
+            }
+            throw error;
+        }
+    }
+    const settingKey = 'home.shortCoursesTickerBadge';
+    const previousSetting = await prisma.siteSetting.findUnique({
+        where: { key: settingKey },
+        select: { value: true }
+    });
+    const previousBadge = previousSetting?.value || null;
+    if (previousBadge && !isValidTickerBadgeUrl(previousBadge)) {
+        throw new Error('Stored short-course ticker badge path is invalid.');
+    }
+    if (req.file) {
+        const badgeUrl = `/uploads/ticker-badges/${req.file.filename}`;
+        await prisma.siteSetting.upsert({
+            where: { key: settingKey },
+            update: { value: badgeUrl, valueSw: null },
+            create: { key: settingKey, value: badgeUrl }
+        });
+        if (previousBadge && previousBadge !== badgeUrl) {
+            try {
+                await removeTickerBadge(previousBadge);
+            }
+            catch (cleanupError) {
+                console.error('Unable to remove replaced short-course ticker badge:', cleanupError);
+            }
+        }
+        res.json({ message: 'Short-course ticker badge saved.', badgeUrl });
+        return;
+    }
+    await prisma.siteSetting.deleteMany({ where: { key: settingKey } });
+    if (previousBadge) {
+        try {
+            await removeTickerBadge(previousBadge);
+        }
+        catch (cleanupError) {
+            console.error('Unable to remove short-course ticker badge:', cleanupError);
+        }
+    }
+    res.json({ message: 'Short-course ticker badge removed.' });
+});
 app.put('/api/admin/site-settings/:key', async (req, res) => {
     const key = req.params.key;
+    if (key === 'labs.images' || key === 'home.shortCoursesTickerBadge') {
+        res.status(409).json({ message: 'Manage this image through its image manager.' });
+        return;
+    }
     if (key === 'home.advertisement') {
         res.status(410).json({ message: 'Homepage advertisements are no longer supported.' });
         return;
@@ -3887,6 +4343,10 @@ app.put('/api/admin/site-settings/:key', async (req, res) => {
 });
 app.delete('/api/admin/site-settings/:key', async (req, res) => {
     const key = req.params.key;
+    if (key === 'labs.images' || key === 'home.shortCoursesTickerBadge') {
+        res.status(409).json({ message: 'Manage this image through its image manager.' });
+        return;
+    }
     if (key === 'home.advertisement') {
         res.status(410).json({ message: 'Homepage advertisements are no longer supported.' });
         return;
@@ -3918,6 +4378,14 @@ app.use(async (error, req, res, _next) => {
         res.status(400).json({ message: error.message });
         return;
     }
+    if (error instanceof LabImageUploadError) {
+        res.status(400).json({ message: error.message });
+        return;
+    }
+    if (error instanceof TickerBadgeUploadError) {
+        res.status(400).json({ message: error.message });
+        return;
+    }
     if (error instanceof CourseMediaUploadError) {
         res.status(400).json({ message: error.message });
         return;
@@ -3938,7 +4406,7 @@ app.use(async (error, req, res, _next) => {
         const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
         res.status(status).json({
             message: error.code === 'LIMIT_FILE_SIZE'
-                ? 'Organization profile photos must be 10 MB or smaller. Partner logos, course, news, and payment images must be 5 MB or smaller; course and news videos must be 50 MB or smaller; publication PDFs must be 20 MB or smaller.'
+                ? 'Organization profile photos must be 10 MB or smaller. Ticker GIF badges, lab, partner, course, news, and payment images must be 5 MB or smaller; course and news videos must be 50 MB or smaller; publication PDFs must be 20 MB or smaller.'
                 : 'The upload contains an unsupported file or exceeds the allowed number of files.'
         });
         return;

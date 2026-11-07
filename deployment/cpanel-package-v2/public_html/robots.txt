@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /uploads/payment-proofs/
+Sitemap: https://kict.makachuzanzibar.co.tz/sitemap.xml

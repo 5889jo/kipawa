@@ -1,5 +1,5 @@
 import dotenv from 'dotenv'
-import bcrypt from 'bcryptjs'
+import bcrypt from 'bcrypt'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { PrismaClient } from '../src/generated/prisma/client'
 
@@ -555,6 +555,49 @@ async function main() {
     update: {},
     create: { name: 'applicant', description: 'Training applicant' }
   })
+  const coordinatorRoleData = {
+    name: 'Course Coordinator',
+    description: 'Manages short and long course listings and course enquiry follow-up.',
+    permissions: ['courses', 'shortCourseEnquiries']
+  }
+  const legacyCoordinatorRole = await prisma.role.findUnique({ where: { name: 'Short Course Coordinator' } })
+  const courseCoordinatorRole = await prisma.role.findUnique({ where: { name: coordinatorRoleData.name } })
+  if (legacyCoordinatorRole && courseCoordinatorRole) {
+    await prisma.$transaction(async (transaction) => {
+      const legacyAssignments = await transaction.userRole.findMany({
+        where: { roleId: legacyCoordinatorRole.id },
+        select: { userId: true }
+      })
+      if (legacyAssignments.length) {
+        await transaction.userRole.createMany({
+          data: legacyAssignments.map(({ userId }) => ({ userId, roleId: courseCoordinatorRole.id })),
+          skipDuplicates: true
+        })
+      }
+      await transaction.role.delete({ where: { id: legacyCoordinatorRole.id } })
+      await transaction.role.update({
+        where: { id: courseCoordinatorRole.id },
+        data: {
+          description: coordinatorRoleData.description,
+          permissions: coordinatorRoleData.permissions
+        }
+      })
+    })
+  } else if (legacyCoordinatorRole) {
+    await prisma.role.update({
+      where: { id: legacyCoordinatorRole.id },
+      data: coordinatorRoleData
+    })
+  } else {
+    await prisma.role.upsert({
+      where: { name: coordinatorRoleData.name },
+      update: {
+        description: coordinatorRoleData.description,
+        permissions: coordinatorRoleData.permissions
+      },
+      create: coordinatorRoleData
+    })
+  }
 
   const organizationMemberCount = await prisma.organizationMember.count()
   if (organizationMemberCount === 0) {

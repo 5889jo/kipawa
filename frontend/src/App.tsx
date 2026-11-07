@@ -7,6 +7,8 @@ import {
   Building2,
   Calendar,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Check,
   Clock3,
   Copy,
@@ -53,10 +55,11 @@ import {
   X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { LanguageProvider } from './LanguageProvider'
 import { useLanguage, useTranslate, type Language } from './language'
+import { applySeoMetadata, resolveCanonicalOrigin, resolveSeoMetadata } from './seo'
 import './App.css'
 
 type UserRole = string
@@ -96,7 +99,7 @@ type Session = {
   user: AppUser
 }
 
-type AuthMode = 'login' | 'register' | null
+type AuthMode = 'login' | 'register' | 'forgot' | null
 
 const VETMIS_REGISTRATION_URL = 'https://vetmis.veta.go.tz/vet-mis/RegisterUserAccount/RegisterUserAccount.do'
 const CAMPAIGN_ATTRIBUTION_STORAGE_KEY = 'kipawa-campaign-attribution'
@@ -281,8 +284,56 @@ type SiteSearchResult = {
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/+$/, '')
 const API_ORIGIN = new URL(API_BASE_URL, window.location.origin).origin
 const canAccessAdmin = (user: AppUser) => user.role === 'admin' || Boolean(user.permissions?.length)
+const isCourseCoordinator = (user: AppUser | null) => Boolean(user && (
+  ['course coordinator', 'short course coordinator'].includes(user.role.trim().toLowerCase())
+))
+const isShortCourseOnlyCoordinator = (user: AppUser | null) => Boolean(
+  user && !isCourseCoordinator(user) && user.role !== 'admin' &&
+  user.permissions?.includes('shortCourseCourses') &&
+  !user.permissions?.includes('courses')
+)
 const COURSE_INTEREST_DATE_MAX = new Date().toISOString().slice(0, 10)
 const SHORT_COURSE_TICKER_SETTING_KEY = 'home.shortCoursesTicker'
+const SHORT_COURSE_TICKER_BADGE_SETTING_KEY = 'home.shortCoursesTickerBadge'
+const LAB_IMAGE_SETTING_KEY = 'labs.images'
+const LAB_IMAGE_OPTIONS = [
+  { key: 'multimedia', title: 'Multimedia Lab' },
+  { key: 'web-design', title: 'Web Design Lab' },
+  { key: 'computer-maintenance', title: 'Computer Maintenance Lab' },
+  { key: 'electronics', title: 'Electronics Labs' },
+  { key: 'electrical', title: 'Electrical Labs' },
+  { key: 'mechatronics', title: 'Mechatronics Labs' }
+] as const
+
+type LabImageSet = {
+  featured: string | null
+  related: string[]
+}
+
+function getLabImageSet(value: string | undefined, labKey: string): LabImageSet {
+  if (!value) return { featured: null, related: [] }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('Lab image settings must be an object.')
+    }
+    const labImages = Reflect.get(parsed, labKey)
+    if (typeof labImages !== 'object' || labImages === null || Array.isArray(labImages)) {
+      return { featured: null, related: [] }
+    }
+    const isLabImageUrl = (imageUrl: unknown): imageUrl is string =>
+      typeof imageUrl === 'string' && /^\/uploads\/labs\/[\w-]+\.(jpg|png|webp)$/i.test(imageUrl)
+    const featured = Reflect.get(labImages, 'featured')
+    const related = Reflect.get(labImages, 'related')
+    return {
+      featured: isLabImageUrl(featured) ? featured : null,
+      related: Array.isArray(related) ? related.filter(isLabImageUrl).slice(0, 8) : []
+    }
+  } catch (error) {
+    console.error('Unable to read lab image settings:', error)
+    return { featured: null, related: [] }
+  }
+}
 const DEFAULT_SHORT_COURSE_TICKER = 'NEW SHORT COURSES INTAKE OPENING SOON — ENROLMENT STARTS ON {startDate} — APPLY NOW!'
 const SITE_SETTINGS_CHANGED_EVENT = 'site-settings-changed'
 const SITE_VISITOR_COUNT_UPDATED_EVENT = 'site-visitor-count-updated'
@@ -361,7 +412,7 @@ type NavigationItem = {
 const navItems: NavigationItem[] = [
   { label: 'Home', to: '/', icon: Home },
   {
-    label: 'About',
+    label: 'About us',
     to: '/about',
     icon: Info,
     children: [
@@ -370,28 +421,27 @@ const navItems: NavigationItem[] = [
       { label: 'Our partners', to: '/about#partners', icon: Building2 }
     ]
   },
+  { label: 'Contact us', to: '/contact', icon: Mail },
   {
-    label: 'Explore',
+    label: 'Study',
     to: '/long-courses',
     icon: BookOpen,
     children: [
       { label: 'Long courses', to: '/long-courses', icon: GraduationCap },
       { label: 'Short courses', to: '/short-courses', icon: Clock3 },
-      { label: 'Labs', to: '/labs', icon: Cpu },
-      { label: 'News', to: '/news', icon: FileText },
-      { label: 'Contact', to: '/contact', icon: Mail }
+      { label: 'Labs', to: '/labs', icon: Cpu }
     ]
   },
   {
-    label: 'Services',
-    to: '#services',
-    icon: Cpu,
+    label: 'Resources',
+    to: '/publications',
+    icon: BookOpen,
     children: [
       { label: 'Publications', to: '/publications', icon: FileText },
-      { label: 'FAQ', to: '/faq', icon: MessageCircle },
-      { label: 'Privacy policy', to: '/privacy', icon: FileText }
+      { label: 'FAQ', to: '/faq', icon: MessageCircle }
     ]
-  }
+  },
+  { label: 'News', to: '/news', icon: FileText }
 ]
 
 const pageCoverImages = {
@@ -412,12 +462,12 @@ async function getCsrfToken(): Promise<string> {
     cache: 'no-store'
   })
     .then(async (response) => {
-      const body = await response.json()
-      if (!response.ok || typeof body.csrfToken !== 'string') {
-        throw new Error(body?.message ?? 'Unable to initialize request security.')
+      const body = await parseApiResponse<unknown>(response)
+      if (typeof body !== 'object' || body === null || !('csrfToken' in body) || typeof body.csrfToken !== 'string') {
+        throw new Error('Unable to initialize request security.')
       }
       csrfToken = body.csrfToken
-      return body.csrfToken as string
+      return body.csrfToken
     })
     .finally(() => {
       csrfTokenRequest = null
@@ -863,10 +913,11 @@ function SiteSearch({
   )
 }
 
-function Breadcrumbs({ pathname, news, courses }: {
+function Breadcrumbs({ pathname, news, courses, session }: {
   pathname: string
   news: NewsItem[]
   courses: CourseCatalogItem[]
+  session: Session | null
 }) {
   const t = useTranslate()
   if (pathname === '/') return null
@@ -889,9 +940,12 @@ function Breadcrumbs({ pathname, news, courses }: {
     '/copyright': 'Copyright statement',
     '/login': 'Login',
     '/register': 'Register',
+    '/reset-password': 'Reset password',
     '/bookings': 'Book a course',
     '/dashboard': 'Learner dashboard',
-    '/admin': 'Administration dashboard'
+    '/admin': isCourseCoordinator(session?.user ?? null)
+      ? 'Course Coordinator dashboard'
+      : isShortCourseOnlyCoordinator(session?.user ?? null) ? 'Short Course Coordinator dashboard' : 'Administration dashboard'
   }
 
   const article = news.find((item) => pathname === `/news/${encodeURIComponent(item.slug)}`)
@@ -987,6 +1041,9 @@ function SitemapPage() {
 
   return (
     <section className="content-page">
+      <header className="news-page-intro">
+        <h1>{t('Website directory')}</h1>
+      </header>
       <ul className="sitemap-list">
         {links.map(([label, path]) => (
           <li key={path}><Link to={path}>{t(label)}</Link></li>
@@ -999,13 +1056,12 @@ function SitemapPage() {
 function LegalInformationPage({ title, settingKey, showCover = true }: { title: string; settingKey: string; showCover?: boolean }) {
   const t = useTranslate()
   const { settings } = useSiteSettings()
-  const isPrivacyPolicy = settingKey === 'legal.privacy'
   const content = (settings[settingKey] ?? '').replace(
     /^Draft privacy notice — requires review by VETA’s authorized legal and data-protection officers before publication\.\s*/i,
     ''
   )
   const paragraphs = content.split(/\r?\n\s*\r?\n/).map((paragraph) => paragraph.trim()).filter(Boolean)
-  const publicInfoDraft = !isPrivacyPolicy && (
+  const publicInfoDraft = (
     settings['publicInfo.reviewStatus']?.trim().toUpperCase() !== 'APPROVED' ||
     /^\s*draft\b/i.test(settings[settingKey] ?? '')
   )
@@ -1027,15 +1083,6 @@ function LegalInformationPage({ title, settingKey, showCover = true }: { title: 
       )}
     </section>
   )
-}
-
-function subscribeToScroll(onChange: () => void) {
-  window.addEventListener('scroll', onChange, { passive: true })
-  return () => window.removeEventListener('scroll', onChange)
-}
-
-function isBackToTopVisible() {
-  return window.scrollY > 400
 }
 
 function App() {
@@ -1062,12 +1109,42 @@ function AppShell() {
   const completeInitialHomeLoad = useCallback(() => setHasHomePageLoaded(true), [])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [openNavMenu, setOpenNavMenu] = useState<string | null>(null)
-  const showBackToTop = useSyncExternalStore(subscribeToScroll, isBackToTopVisible, () => false)
+  const [showBackToTop, setShowBackToTop] = useState(() => window.scrollY > 400)
   const { data: searchCourses, error: searchCoursesError } = useApiData<CourseCatalogItem>('/courses')
   const { data: searchNews, error: searchNewsError } = useApiData<NewsItem>('/news')
   const { data: searchPublications, error: searchPublicationsError } = useApiData<PublicationItem>('/publications')
   const { settings } = useSiteSettings()
   const siteName = settings['site.name'] ?? 'VETA Kipawa ICT Centre'
+  const canonicalOrigin = resolveCanonicalOrigin(import.meta.env.VITE_SITE_URL, window.location.origin)
+  const seoMetadata = useMemo(() => {
+    const article = searchNews.find((item) => location.pathname === `/news/${encodeURIComponent(item.slug)}`)
+    const course = searchCourses.find((item) => location.pathname === `/courses/${encodeURIComponent(item.slug)}`)
+    const localizedArticle = article ? localizeContentRecord(article, language) : undefined
+    const localizedCourse = course ? localizeContentRecord(course, language) : undefined
+    return resolveSeoMetadata({
+      pathname: location.pathname,
+      language,
+      siteName,
+      canonicalOrigin,
+      article: localizedArticle ? { title: localizedArticle.title, description: localizedArticle.summary } : undefined,
+      course: localizedCourse ? { title: localizedCourse.name, description: localizedCourse.summary } : undefined
+    })
+  }, [canonicalOrigin, language, location.pathname, searchCourses, searchNews, siteName])
+
+  useEffect(() => {
+    applySeoMetadata(seoMetadata, canonicalOrigin)
+  }, [canonicalOrigin, seoMetadata])
+
+  useEffect(() => {
+    const updateScrollUiState = () => {
+      setShowBackToTop(window.scrollY > 400)
+    }
+
+    updateScrollUiState()
+    window.addEventListener('scroll', updateScrollUiState, { passive: true })
+    return () => window.removeEventListener('scroll', updateScrollUiState)
+  }, [location.pathname])
+
   const routeAuthMode: AuthMode = !logoutRedirecting && authReady && !session && location.pathname === '/login'
     ? 'login'
     : !logoutRedirecting && authReady && !session && location.pathname === '/register'
@@ -1192,7 +1269,9 @@ function AppShell() {
       '/register': 'Register',
       '/bookings': 'Book a course',
       '/dashboard': 'Learner dashboard',
-      '/admin': 'Administration dashboard'
+      '/admin': isCourseCoordinator(session?.user ?? null)
+        ? 'Course Coordinator dashboard'
+        : isShortCourseOnlyCoordinator(session?.user ?? null) ? 'Short Course Coordinator dashboard' : 'Administration dashboard'
     }
     const article = searchNews.find((item) => location.pathname === `/news/${encodeURIComponent(item.slug)}`)
     const course = searchCourses.find((item) => location.pathname === `/courses/${encodeURIComponent(item.slug)}`)
@@ -1249,6 +1328,7 @@ function AppShell() {
       : navItems,
     [session]
   )
+  const isHomePage = location.pathname === '/'
 
   const searchResults = useMemo<SiteSearchResult[]>(() => {
     const pageResults: SiteSearchResult[] = [
@@ -1304,18 +1384,57 @@ function AppShell() {
 
   return (
     <div className="app-shell light-theme">
-      <header className="topbar">
-        <button
-          type="button"
-          className="menu-toggle"
-          aria-label={t(mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu')}
-          aria-expanded={mobileMenuOpen}
-          onClick={() => setMobileMenuOpen((open) => !open)}
-        >
-          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+      <a className="skip-link" href="#main-content">{t('Skip to main content')}</a>
+      <header className={`topbar${isHomePage ? ' topbar--home' : ''}`}>
+        <div className="header-utility-bar">
+          <div className="header-utility-inner">
+            <span className="header-utility-location">
+              <MapPin size={13} aria-hidden="true" />
+              <span>{t('Kipawa, Dar es Salaam')}</span>
+            </span>
+            <div className="header-utility-contacts">
+              {splitContactPhones(settings['site.contactPhone'] ?? KIPAWA_CONTACT_PHONE).slice(0, 1).map((phone) => (
+                <a key={phone} href={`tel:${phone.replace(/[^\d+]/g, '')}`}>
+                  <Phone size={13} aria-hidden="true" />
+                  <span>{phone}</span>
+                </a>
+              ))}
+              <a href={`mailto:${settings['site.contactEmail'] ?? KIPAWA_CONTACT_EMAIL}`}>
+                <Mail size={13} aria-hidden="true" />
+                <span>{settings['site.contactEmail'] ?? KIPAWA_CONTACT_EMAIL}</span>
+              </a>
+            </div>
+          </div>
+        </div>
+        <div className="header-brand-row">
+          <div className="header-brand-marks" role="group" aria-label={t('Government and VETA logos')}>
+            <img
+              className="header-brand-coat-of-arms"
+              src="/tanzania-coat-of-arms.png"
+              alt={t('Coat of arms of the United Republic of Tanzania')}
+            />
+            <span className="header-brand-divider" aria-hidden="true" />
+            <Link className="header-brand-logo" to="/" aria-label={`${siteName} home`}>
+              <img src="/veta-logo-official.jpg" alt={t('VETA logo')} />
+            </Link>
+          </div>
+          <div className="header-brand-copy">
+            <p className="header-brand-title">{t('VETA KIPAWA ICT CENTER')}</p>
+            <p className="header-brand-subtitle">{t('Skilled Labor Force For The Future Of Tanzania')}</p>
+          </div>
+          <button
+            type="button"
+            className="menu-toggle"
+            aria-label={t(mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu')}
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen((open) => !open)}
+          >
+            {mobileMenuOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+          </button>
+        </div>
 
-        <nav className={mobileMenuOpen ? 'main-nav open' : 'main-nav'} aria-label={t('Main navigation')}>
+        <div className="header-navigation">
+          <nav className={mobileMenuOpen ? 'main-nav open' : 'main-nav'} aria-label={t('Main navigation')}>
           {navLinks.map((item) => {
             const Icon = item.icon
 
@@ -1445,8 +1564,9 @@ function AppShell() {
           >
             <Languages size={19} aria-hidden="true" />
           </button>
-        </nav>
-        <SiteSearch results={searchResults} errors={searchErrors} />
+          </nav>
+          <SiteSearch results={searchResults} errors={searchErrors} />
+        </div>
       </header>
 
       {visibleAuthMode && (
@@ -1459,19 +1579,19 @@ function AppShell() {
         />
       )}
 
-      <main className="page-shell">
-        <Breadcrumbs pathname={location.pathname} news={searchNews} courses={searchCourses} />
+      <main id="main-content" className="page-shell" tabIndex={-1}>
+        <Breadcrumbs pathname={location.pathname} news={searchNews} courses={searchCourses} session={session} />
         {authError && <p className="error-message" role="alert">{t(authError)}</p>}
         <Routes>
           <Route path="/" element={<HomePage session={session} isInitialLoad={!hasHomePageLoaded} onInitialLoadComplete={completeInitialHomeLoad} />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/labs" element={<AboutPage />} />
+          <Route path="/about" element={<AboutPage siteSettings={settings} />} />
+          <Route path="/labs" element={<AboutPage siteSettings={settings} />} />
           <Route path="/centres" element={<Navigate to="/labs" replace />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/courses" element={<Navigate to="/long-courses" replace />} />
           <Route path="/long-courses" element={<CoursesPage courseType="Long Course" session={session} />} />
           <Route path="/short-courses" element={<CoursesPage courseType="Short Course" session={session} />} />
-        <Route path="/courses/:slug" element={<CourseDetailPage session={session} />} />
+        <Route path="/courses/:slug" element={<CourseDetailPage session={session} onOpenLogin={() => setAuthMode('login')} />} />
           <Route path="/admissions" element={<Navigate to="/long-courses" replace />} />
           <Route path="/news" element={<NewsPage />} />
           <Route path="/news/:slug" element={<NewsArticlePage session={session} onOpenLogin={() => setAuthMode('login')} />} />
@@ -1499,6 +1619,7 @@ function AppShell() {
               ? <p>{t('Checking your session…')}</p>
               : session ? <Navigate to={canAccessAdmin(session.user) ? '/admin' : '/news'} replace /> : null}
           />
+          <Route path="/reset-password" element={<ResetPasswordPage onPasswordReset={() => setSession(null)} />} />
           <Route path="/bookings" element={<Navigate to="/courses" replace />} />
           <Route
             path="/dashboard"
@@ -1832,6 +1953,10 @@ function HomePage({
     : ''
   const tickerText = (settings[SHORT_COURSE_TICKER_SETTING_KEY] || DEFAULT_SHORT_COURSE_TICKER)
     .replace(/\{startDate\}|\[START DATE\]/gi, tickerStartDate)
+  const tickerBadgeSetting = settings[SHORT_COURSE_TICKER_BADGE_SETTING_KEY]
+  const tickerBadgeUrl = tickerBadgeSetting && /^\/uploads\/ticker-badges\/[\w-]+\.gif$/i.test(tickerBadgeSetting)
+    ? tickerBadgeSetting
+    : null
   const homepageStats = [
     { key: 'shortCourses', label: 'Short Courses', icon: BookOpen, value: siteStatistics.find((statistic) => statistic.key === 'shortCourses')?.value ?? 0 },
     { key: 'longCourses', label: 'Long Courses', icon: BookOpen, value: siteStatistics.find((statistic) => statistic.key === 'longCourses')?.value ?? 0 },
@@ -1958,13 +2083,7 @@ function HomePage({
       <section className="welcome-banner" aria-label={t('Welcome to our institute')}>
         <div className="welcome-body">
           <div className="welcome-visual">
-            <img
-              className="welcome-principal-embed"
-              src="/pirincipal-01.svg"
-              alt={t('Principal, VETA Kipawa ICT Centre')}
-              loading="lazy"
-              decoding="async"
-            />
+            <img className="welcome-principal-embed" src="/pirincipal-01.svg" alt={t('Principal, VETA Kipawa ICT Centre')} loading="lazy" decoding="async" />
             <div className="welcome-principal-caption">
               <strong>{t('Misai John Msengi')}</strong>
               <span>{t('Principal, VETA Kipawa ICT Centre')}</span>
@@ -1990,40 +2109,11 @@ function HomePage({
               </p>
             </div>
             <div className="welcome-actions">
-              <Link to="/about" className="primary-button">
-                {t('Read more')}
-                <ArrowRight size={18} />
-              </Link>
-              <Link to="/long-courses" className="secondary-button">
-                {t('Explore courses')}
-              </Link>
+              <Link to="/about" className="primary-button">{t('Read more')} <ArrowRight size={18} /></Link>
+              <Link to="/long-courses" className="secondary-button">{t('Explore courses')}</Link>
             </div>
           </div>
         </div>
-      </section>
-
-      <section className="homepage-stats" aria-labelledby="homepage-stats-title">
-        <div className="homepage-stats-heading">
-          <div>
-            <h2 id="homepage-stats-title">{t('VETA Kipawa in numbers')}<br /><span>2025-2026</span></h2>
-          </div>
-        </div>
-        <div className="homepage-stats-grid">
-          {homepageStats.map((statistic) => {
-            const Icon = statistic.icon
-            return (
-              <article className="homepage-stat-card" key={statistic.key}>
-                <span className="homepage-stat-icon"><Icon size={19} aria-hidden="true" /></span>
-                <strong>
-                  <AnimatedCount value={statistic.value} language={language} />
-                  <span className="visually-hidden">{statistic.value.toLocaleString(language === 'sw' ? 'sw-TZ' : 'en-US')}</span>
-                </strong>
-                <span className="homepage-stat-label">{t(statistic.label)}</span>
-              </article>
-            )
-          })}
-        </div>
-        {siteStatisticsError && <p className="error-message" role="alert">{t(siteStatisticsError)}</p>}
       </section>
 
       {upcomingCourses.length > 0 && <section id="upcoming-short-courses" className="upcoming-courses-panel short-course-announcements" aria-labelledby="short-course-announcements-title">
@@ -2037,7 +2127,11 @@ function HomePage({
         {upcomingCourses.length ? (
           <>
             <div className="short-course-announcement-ticker" role="group" aria-label={t('Course announcements')}>
-              <span className="short-course-ticker-badge">{t('New')}</span>
+              <span className={`short-course-ticker-badge${tickerBadgeUrl ? ' has-image' : ''}`}>
+                {tickerBadgeUrl
+                  ? <img src={getMediaUrl(tickerBadgeUrl)} alt={t('New short courses')} />
+                  : t('New')}
+              </span>
               <div className="short-course-ticker-window" aria-label={tickerText}>
                 <div className="short-course-ticker-track" aria-hidden="true">
                   <span>{tickerText}</span>
@@ -2094,6 +2188,30 @@ function HomePage({
           </div>
         )}
       </section>}
+
+      <section className="homepage-stats" aria-labelledby="homepage-stats-title">
+        <div className="homepage-stats-heading">
+          <div>
+            <h2 id="homepage-stats-title">{t('VETA Kipawa in numbers')}<br /><span>2025-2026</span></h2>
+          </div>
+        </div>
+        <div className="homepage-stats-grid">
+          {homepageStats.map((statistic) => {
+            const Icon = statistic.icon
+            return (
+              <article className="homepage-stat-card" key={statistic.key}>
+                <span className="homepage-stat-icon"><Icon size={19} aria-hidden="true" /></span>
+                <strong>
+                  <AnimatedCount value={statistic.value} language={language} />
+                  <span className="visually-hidden">{statistic.value.toLocaleString(language === 'sw' ? 'sw-TZ' : 'en-US')}</span>
+                </strong>
+                <span className="homepage-stat-label">{t(statistic.label)}</span>
+              </article>
+            )
+          })}
+        </div>
+        {siteStatisticsError && <p className="error-message" role="alert">{t(siteStatisticsError)}</p>}
+      </section>
 
       <section className="home-panel-grid" aria-label={t('Institution updates')}>
         <div className="info-panel">
@@ -2463,7 +2581,7 @@ function TeamHierarchy({ members }: { members: OrganizationMember[] }) {
   )
 }
 
-function AboutPage() {
+function AboutPage({ siteSettings }: { siteSettings: Record<string, string> }) {
   const t = useTranslate()
   const { language } = useLanguage()
   const location = useLocation()
@@ -2472,10 +2590,14 @@ function AboutPage() {
   const { data: partners, error: partnersError, loading: partnersLoading } = useApiData<PartnerProfile>('/partners')
   const [activeLab, setActiveLab] = useState(0)
   const [activeIctLab, setActiveIctLab] = useState(0)
+  const [activeLabImage, setActiveLabImage] = useState<number | null>(null)
+  const labImageDialogRef = useRef<HTMLDialogElement>(null)
+  const labImageTouchStartX = useRef<number | null>(null)
   const organizationViewActive = location.hash === '#organization'
   const partnersViewActive = location.hash === '#partners'
   const labsViewActive = location.pathname === '/labs' || location.hash === '#explore-labs'
   type LabExperience = {
+    key: string
     title: string
     category: string
     image: string
@@ -2492,6 +2614,7 @@ function AboutPage() {
       category: 'Digital skills',
       subLabs: [
         {
+          key: 'multimedia',
           title: 'Multimedia Lab',
           category: 'Digital media and creativity',
           image: coursePhotoUrl('multimedia video production', 0, 1200),
@@ -2499,6 +2622,7 @@ function AboutPage() {
           topics: ['Graphics and visual communication', 'Audio and video production fundamentals', 'Editing and preparing digital media projects']
         },
         {
+          key: 'web-design',
           title: 'Web Design Lab',
           category: 'Web and digital experiences',
           image: coursePhotoUrl('web design website', 1, 1200),
@@ -2506,6 +2630,7 @@ function AboutPage() {
           topics: ['Web page structure and styling', 'Responsive design and usability', 'Building and publishing a small website']
         },
         {
+          key: 'computer-maintenance',
           title: 'Computer Maintenance Lab',
           category: 'Computer hardware and support',
           image: coursePhotoUrl('computer maintenance hardware repair', 2, 1200),
@@ -2517,13 +2642,15 @@ function AboutPage() {
     {
       title: 'Electronics Labs',
       category: 'Electronics',
-      image: coursePhotoUrl('electronics circuit', 1, 1200),
+      key: 'electronics',
+      image: '/labs/electronics lab.jpg',
       description: 'Understand how electronic systems work by learning about components, circuits, and technical troubleshooting.',
       topics: ['Electronic components and circuits', 'Measurement and testing techniques', 'Fault-finding and repair principles']
     },
     {
       title: 'Electrical Labs',
       category: 'Electrical technology',
+      key: 'electrical',
       image: coursePhotoUrl('electrical installation wiring', 0, 1200),
       description: 'Explore electrical systems through practical learning focused on safe installation, maintenance, and automation.',
       topics: ['Electrical safety and tools', 'Wiring and installation practice', 'Circuit testing and measurements', 'Fault-finding and maintenance']
@@ -2531,6 +2658,7 @@ function AboutPage() {
     {
       title: 'Mechatronics Labs',
       category: 'Integrated technology',
+      key: 'mechatronics',
       image: coursePhotoUrl('mechatronics robotics', 1, 1200),
       description: 'Discover how mechanical, electrical, electronic, and control technologies work together in modern systems.',
       topics: ['Electromechanical systems', 'Sensors and control fundamentals', 'Automation and applied problem-solving']
@@ -2540,6 +2668,39 @@ function AboutPage() {
   const selectedExperience = 'subLabs' in selectedLab
     ? selectedLab.subLabs[activeIctLab]
     : selectedLab
+  const selectedLabImages = getLabImageSet(siteSettings[LAB_IMAGE_SETTING_KEY], selectedExperience.key)
+  const selectedFeaturedImage = selectedLabImages.featured ?? selectedExperience.image
+  const featuredImageUrl = selectedFeaturedImage.startsWith('/uploads/') ? getMediaUrl(selectedFeaturedImage) : selectedFeaturedImage
+  const labGalleryImages = selectedLabImages.related.map(getMediaUrl)
+
+  useEffect(() => {
+    const dialog = labImageDialogRef.current
+    if (!dialog) return
+    if (activeLabImage !== null && !dialog.open) dialog.showModal()
+    else if (activeLabImage === null && dialog.open) dialog.close()
+  }, [activeLabImage])
+
+  useEffect(() => {
+    if (activeLabImage === null || labGalleryImages.length < 2) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        setActiveLabImage((index) => index === null ? null : (index - 1 + labGalleryImages.length) % labGalleryImages.length)
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        setActiveLabImage((index) => index === null ? null : (index + 1) % labGalleryImages.length)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeLabImage, labGalleryImages.length])
+
+  const showPreviousLabImage = () => {
+    setActiveLabImage((index) => index === null ? null : (index - 1 + labGalleryImages.length) % labGalleryImages.length)
+  }
+  const showNextLabImage = () => {
+    setActiveLabImage((index) => index === null ? null : (index + 1) % labGalleryImages.length)
+  }
 
   useEffect(() => {
     if (location.hash !== '#mission' && location.hash !== '#vision') return
@@ -2673,7 +2834,10 @@ function AboutPage() {
                 type="button"
                 aria-pressed={activeLab === index}
                 className={`about-lab-category${activeLab === index ? ' is-active' : ''}`}
-                onClick={() => setActiveLab(index)}
+                onClick={() => {
+                  setActiveLab(index)
+                  setActiveLabImage(null)
+                }}
               >
                 <span className="about-lab-category-icon" aria-hidden="true">
                   {index === 0 ? <Laptop size={19} /> : index === 1 ? <Cpu size={19} /> : index === 2 ? <Zap size={19} /> : <Wrench size={19} />}
@@ -2691,7 +2855,10 @@ function AboutPage() {
                   type="button"
                   aria-pressed={activeIctLab === index}
                   className={`about-ict-sub-lab${activeIctLab === index ? ' is-active' : ''}`}
-                  onClick={() => setActiveIctLab(index)}
+                  onClick={() => {
+                    setActiveIctLab(index)
+                    setActiveLabImage(null)
+                  }}
                 >
                   {t(lab.title)}
                 </button>
@@ -2700,8 +2867,7 @@ function AboutPage() {
           )}
           <article id="about-lab-panel" className="about-lab-feature" aria-labelledby="about-lab-title" aria-live="polite">
             <figure className="about-lab-image">
-              <img src={selectedExperience.image} alt={t(`${selectedExperience.title} learning space`)} loading="lazy" decoding="async" />
-              <figcaption>{t('Illustrative image')}</figcaption>
+              <img src={featuredImageUrl} alt={t(`${selectedExperience.title} learning space`)} loading="lazy" decoding="async" />
             </figure>
             <div className="about-lab-copy">
               <span className="about-lab-kicker">{t(selectedExperience.category)}</span>
@@ -2713,13 +2879,103 @@ function AboutPage() {
               </ul>
             </div>
           </article>
+          {selectedLabImages.related.length > 0 && (
+            <div className="about-lab-related" aria-label={t('Related lab images')}>
+              <h4>{t('Related images')}</h4>
+              <div className="about-lab-related-grid">
+                {selectedLabImages.related.map((imageUrl, index) => (
+                  <button
+                    key={imageUrl}
+                    type="button"
+                    aria-label={`${t('View related image')} ${index + 1}`}
+                    onClick={() => setActiveLabImage(index)}
+                  >
+                    <img
+                      src={labGalleryImages[index]}
+                      alt={`${t(selectedExperience.title)} ${t('related image')} ${index + 1}`}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {labGalleryImages.length > 0 && (
+            <dialog
+              ref={labImageDialogRef}
+              className="lab-image-preview-dialog"
+              aria-label={t('Lab image viewer')}
+              onCancel={(event) => {
+                event.preventDefault()
+                setActiveLabImage(null)
+              }}
+              onClose={() => setActiveLabImage(null)}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) setActiveLabImage(null)
+              }}
+            >
+              {activeLabImage !== null && (
+                <div
+                  className="lab-image-preview-content"
+                  onTouchStart={(event) => {
+                    labImageTouchStartX.current = event.changedTouches[0]?.clientX ?? null
+                  }}
+                  onTouchEnd={(event) => {
+                    const startX = labImageTouchStartX.current
+                    labImageTouchStartX.current = null
+                    const endX = event.changedTouches[0]?.clientX
+                    if (startX === null || endX === undefined || labGalleryImages.length < 2) return
+                    const distance = endX - startX
+                    if (Math.abs(distance) > 45) {
+                      if (distance > 0) showPreviousLabImage()
+                      else showNextLabImage()
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="lab-image-preview-close"
+                    aria-label={t('Close image viewer')}
+                    onClick={() => setActiveLabImage(null)}
+                  >
+                    <X size={20} aria-hidden="true" />
+                  </button>
+                  {labGalleryImages.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        className="lab-image-preview-nav lab-image-preview-previous"
+                        aria-label={t('Previous lab image')}
+                        onClick={showPreviousLabImage}
+                      >
+                        <ChevronLeft size={24} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        className="lab-image-preview-nav lab-image-preview-next"
+                        aria-label={t('Next lab image')}
+                        onClick={showNextLabImage}
+                      >
+                        <ChevronRight size={24} aria-hidden="true" />
+                      </button>
+                    </>
+                  )}
+                  <img src={labGalleryImages[activeLabImage]} alt={`${t(selectedExperience.title)} ${t('related image')} ${activeLabImage + 1}`} />
+                  <span className="lab-image-preview-count">
+                    {activeLabImage + 1} / {labGalleryImages.length}
+                  </span>
+                </div>
+              )}
+            </dialog>
+          )}
         </section>
       ) : (
       <div className="about-authority-content">
         <section className="about-authority-introduction" aria-labelledby="about-introduction-title">
           <figure className="about-authority-figure">
             <img
-              src="/bgimage.jpeg"
+              src="/stats-background.png"
               alt={t('VETA Kipawa ICT Centre building')}
               loading="lazy"
               decoding="async"
@@ -2743,16 +2999,16 @@ function AboutPage() {
               <section id="mission" className="about-authority-purpose-card is-mission is-compact" aria-labelledby="about-mission-title">
                 <div className="about-authority-card-heading">
                   <span className="about-authority-card-icon"><Award size={17} aria-hidden="true" /></span>
-                  <h2 id="about-mission-title">{t('Our purpose')}</h2>
+                  <h2 id="about-mission-title">{t('Mission')}</h2>
                 </div>
-                <p>"{t('To ensure availability of Vocational Skills in Tanzania through provision and promotion of Vocational Education and Training (VET) to meet labour market demand for socio-economic development.')}"</p>
+                <p>"{t('At VETA Kipawa ICT Centre, we provide and promote practical vocational skills that respond to Tanzania’s labour-market needs and support socio-economic development.')}"</p>
               </section>
               <section id="vision" className="about-authority-purpose-card is-vision is-compact" aria-labelledby="about-vision-title">
                 <div className="about-authority-card-heading">
                   <span className="about-authority-card-icon"><Eye size={17} aria-hidden="true" /></span>
-                  <h2 id="about-vision-title">{t('Our aspiration')}</h2>
+                  <h2 id="about-vision-title">{t('Vision')}</h2>
                 </div>
-                <p>"{t('Tanzania with sufficient and competent artisans.')}"</p>
+                <p>"{t('We contribute to VETA’s aspiration for a Tanzania with sufficient, competent artisans by equipping learners at VETA Kipawa with practical, industry-relevant skills.')}"</p>
               </section>
             </div>
           </div>
@@ -2770,22 +3026,22 @@ function AboutPage() {
             {[
               {
                 title: 'People first',
-                description: "We are committed to meet people's expectations with courtesy and responsiveness;",
+                description: 'At VETA Kipawa, we put learners and our community first by listening, offering respectful service, and supporting each learner to succeed.',
                 icon: UserRoundCheck
               },
               {
                 title: 'Dexterity and creativity',
-                description: 'Dedicated to Enhance hands on skills in responding technological challenges and meet labour market needs;',
+                description: 'We build hands-on ICT, electrical, electronics, and mechatronics skills, encouraging learners to apply their creativity to real technical challenges.',
                 icon: Zap
               },
               {
                 title: 'Teamwork and integrity',
-                description: 'Believing in working together with high levels of integrity to achieve the common goal; and',
+                description: 'Our staff, learners, employers, and partners work together honestly and responsibly to strengthen training and opportunity at VETA Kipawa.',
                 icon: Users
               },
               {
                 title: 'Relevancy',
-                description: 'Working towards ensuring provision of relevant Vocational Training and Services that respond to the demand of labour market and people needs',
+                description: 'We shape practical training around the changing needs of employers, the labour market, and the communities we serve.',
                 icon: Check
               }
             ].map(({ title, description, icon: ValueIcon }, index) => (
@@ -3092,6 +3348,7 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
     activeProgrammeId === 'all-long-courses' ||
     (course.category ?? 'ICT').trim().toUpperCase() === selectedLongCourseCategory
   )
+  const selectedProgrammeImage = longCoursesInSelectedProgramme[0]?.imageUrl
   const visibleCourses = (isShortCoursePage ? shortCoursesInSelectedArea : longCoursesInSelectedProgramme).filter((course) => {
     const matchesFilter = !isShortCoursePage || matchesShortCourseFilter(course)
     const matchesSearch = `${course.name} ${course.level} ${course.category ?? ''} ${course.summary ?? ''}`.toLowerCase().includes(courseSearch.trim().toLowerCase())
@@ -3158,7 +3415,7 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
         <article className="programme-detail-panel programme-description-panel" aria-live="polite">
           <figure className="programme-detail-image">
             <img
-              src={coursePhotoUrl(selectedProgramme.name, 0, 1000)}
+              src={selectedProgrammeImage ? getMediaUrl(selectedProgrammeImage) : coursePhotoUrl(selectedProgramme.name, 0, 1000)}
               alt={`${t(selectedProgramme.name)} ${t('training illustration')}`}
               loading="lazy"
               decoding="async"
@@ -3407,7 +3664,7 @@ function CompactShareActions({ url, title }: { url: string; title: string }) {
   )
 }
 
-function CourseDetailPage({ session }: { session: Session | null }) {
+function CourseDetailPage({ session, onOpenLogin }: { session: Session | null; onOpenLogin: () => void }) {
   const t = useTranslate()
   const { language, setLanguage } = useLanguage()
   const { slug = '' } = useParams()
@@ -3417,6 +3674,7 @@ function CourseDetailPage({ session }: { session: Session | null }) {
   const [loadedSlug, setLoadedSlug] = useState('')
   const [loading, setLoading] = useState(true)
   const [isInterestDialogOpen, setIsInterestDialogOpen] = useState(false)
+  const [pendingBooking, setPendingBooking] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState<{ slug: string; message: string } | null>(null)
@@ -3454,10 +3712,20 @@ function CourseDetailPage({ session }: { session: Session | null }) {
   }, [slug])
 
   useEffect(() => {
-    if (session?.user.role !== 'admin' && (isShortCourse ? canRequestShortCourse : Boolean(course)) && loadedSlug === slug && location.hash === '#course-interest-form') {
+    if (session?.user.role !== 'admin' && isShortCourse && !session && canRequestShortCourse && loadedSlug === slug && location.hash === '#course-interest-form') {
+      setPendingBooking(true)
+      onOpenLogin()
+    } else if (session?.user.role !== 'admin' && (isShortCourse ? canRequestShortCourse : Boolean(course)) && loadedSlug === slug && location.hash === '#course-interest-form') {
       setIsInterestDialogOpen(true)
     }
   }, [canRequestShortCourse, course, isShortCourse, loadedSlug, location.hash, session?.user.role, slug])
+
+  useEffect(() => {
+    if (session && pendingBooking && isShortCourse && canRequestShortCourse && loadedSlug === slug) {
+      setPendingBooking(false)
+      setIsInterestDialogOpen(true)
+    }
+  }, [canRequestShortCourse, isShortCourse, loadedSlug, pendingBooking, session, slug])
 
   useEffect(() => {
     const dialog = interestDialogRef.current
@@ -3480,9 +3748,19 @@ function CourseDetailPage({ session }: { session: Session | null }) {
     }
   }
 
+  const openCourseBooking = () => {
+    if (isShortCourse && !session) {
+      setPendingBooking(true)
+      onOpenLogin()
+      return
+    }
+    setIsInterestDialogOpen(true)
+  }
+
   const handleInterestSubmit = async () => {
     if (!course || (isShortCourse && !canRequestShortCourse)) return
     if (session?.user.role === 'admin') return
+    if (!session && isShortCourse) return
     if (!session && (!guestInterest.fullName.trim() || !guestInterest.email.trim() || !guestInterest.phone.trim())) {
       setError(t('Enter your name, email address and phone number.'))
       return
@@ -3493,7 +3771,7 @@ function CourseDetailPage({ session }: { session: Session | null }) {
     try {
       await postJson('/course-interests', {
         courseSlug: course.slug,
-        ...(session ? {} : guestInterest),
+        ...(session || isShortCourse ? {} : guestInterest),
         campaign: getStoredCampaignAttribution()
       })
       setNotice({
@@ -3547,6 +3825,15 @@ function CourseDetailPage({ session }: { session: Session | null }) {
           : [t('Digital workplace and computer operations'), t('Entry-level ICT support'), t('Further vocational training in a chosen specialty')]
   const courseImage = course.imageUrl ? getMediaUrl(course.imageUrl) : coursePhotoUrl(course.name, 0, 1500)
   const courseCentre = 'VETA Kipawa ICT Centre'
+  const courseMediaPreviewIndex = course.media?.findIndex((item) => item.id === courseMediaPreview?.id) ?? -1
+  const showPreviousCourseMedia = () => {
+    if (!course.media?.length || courseMediaPreviewIndex <= 0) return
+    setCourseMediaPreview(course.media[courseMediaPreviewIndex - 1])
+  }
+  const showNextCourseMedia = () => {
+    if (!course.media?.length || courseMediaPreviewIndex < 0 || courseMediaPreviewIndex >= course.media.length - 1) return
+    setCourseMediaPreview(course.media[courseMediaPreviewIndex + 1])
+  }
 
   return (
     <section className="content-page course-detail-page">
@@ -3568,13 +3855,13 @@ function CourseDetailPage({ session }: { session: Session | null }) {
               <a className="primary-button" href={VETMIS_REGISTRATION_URL} target="_blank" rel="noreferrer">
                 {t('Register through VET-MIS')} <ArrowRight size={17} aria-hidden="true" />
               </a>
-              <button type="button" className="secondary-button" onClick={() => setIsInterestDialogOpen(true)}>
+              <button type="button" className="secondary-button" onClick={openCourseBooking}>
                 {t('Ask about this course')} <MessageCircle size={17} aria-hidden="true" />
               </button>
             </div>
           ) : canRequestShortCourse ? (
-            <button type="button" className="primary-button" onClick={() => setIsInterestDialogOpen(true)}>
-              {t('Request to join this course')} <ArrowRight size={17} />
+            <button type="button" className="primary-button" onClick={openCourseBooking}>
+              {t('Book now')} <ArrowRight size={17} />
             </button>
           ) : (
             <p className="course-schedule-status" role="status">{t('Requests are closed outside the published dates for this course.')}</p>
@@ -3639,11 +3926,31 @@ function CourseDetailPage({ session }: { session: Session | null }) {
               >
                 <X size={18} aria-hidden="true" />
               </button>
+              <button
+                type="button"
+                className="course-media-preview-nav course-media-preview-previous secondary-button action-icon-button"
+                onClick={showPreviousCourseMedia}
+                disabled={courseMediaPreviewIndex <= 0}
+                aria-label={t('Previous course media')}
+                title={t('Previous course media')}
+              >
+                <ChevronLeft size={24} aria-hidden="true" />
+              </button>
               {courseMediaPreview?.type === 'video' ? (
                 <video src={getMediaUrl(courseMediaPreview.url)} controls playsInline />
               ) : courseMediaPreview ? (
                 <img src={getMediaUrl(courseMediaPreview.url)} alt={`${course.name} ${t('course photo')}`} />
               ) : null}
+              <button
+                type="button"
+                className="course-media-preview-nav course-media-preview-next secondary-button action-icon-button"
+                onClick={showNextCourseMedia}
+                disabled={courseMediaPreviewIndex < 0 || courseMediaPreviewIndex >= (course.media?.length ?? 0) - 1}
+                aria-label={t('Next course media')}
+                title={t('Next course media')}
+              >
+                <ChevronRight size={24} aria-hidden="true" />
+              </button>
             </div>
           </dialog>
         </section>
@@ -3679,7 +3986,7 @@ function CourseDetailPage({ session }: { session: Session | null }) {
         {course.courseType === 'Short Course' && session?.user.role === 'admin' && (
           <p className="course-interest-privacy">{t('Administrator accounts cannot request course bookings.')}</p>
         )}
-        {session?.user.role !== 'admin' && <dialog
+        {session?.user.role !== 'admin' && (!isShortCourse || session) && <dialog
           ref={interestDialogRef}
           className="course-interest-dialog"
           aria-label={t('Short-course application steps')}
@@ -3707,10 +4014,9 @@ function CourseDetailPage({ session }: { session: Session | null }) {
             </button>
           </div>
           <span className="eyebrow">{t('Take the next step')}</span>
-          <h2>{t('Request to join this course')}</h2>
-          <p>{t(isShortCourse ? session
-            ? 'Sign in or create a learner account to start your request. The centre will provide a control number for the TSh 5,000 application form fee. Upload your payment screenshot in your dashboard; the full application form opens after staff verify the payment.'
-            : 'Send your details now and the centre will contact you with the next intake, fee and application steps. You can create an account later if you decide to apply.'
+          <h2>{t(isShortCourse ? 'Book this course' : 'Ask about this course')}</h2>
+          <p>{t(isShortCourse
+            ? 'Your booking will be saved to your account. The centre will provide a control number for the TSh 5,000 application form fee.'
             : 'Send your details and the centre will contact you about entry requirements, fees, the next intake and the official application process.')}</p>
           <p>{t(isShortCourse ? 'Submitting a request does not confirm a place. Wait for the centre to contact you and confirm availability before paying any course fees.' : 'This enquiry does not submit your VET-MIS application or confirm a place.')}</p>
           {isShortCourse && <div className="course-payment-guide">
@@ -3723,7 +4029,7 @@ function CourseDetailPage({ session }: { session: Session | null }) {
               <li>{t('The centre reviews your application and updates your dashboard with the decision and start date.')}</li>
             </ol>
           </div>}
-          {!session && (
+          {!session && !isShortCourse && (
             <div className="guest-interest-form">
               <label>{t('Full name')}<input value={guestInterest.fullName} onChange={(event) => setGuestInterest((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" /></label>
               <label>{t('Email address')}<input type="email" value={guestInterest.email} onChange={(event) => setGuestInterest((current) => ({ ...current, email: event.target.value }))} autoComplete="email" /></label>
@@ -3735,7 +4041,7 @@ function CourseDetailPage({ session }: { session: Session | null }) {
           {notice?.slug === slug && <p className="success-message" role="status">{t(notice.message)}</p>}
           <button type="button" className="primary-button" disabled={submitting}
             onClick={() => void handleInterestSubmit()}>
-            {submitting ? t('Please wait…') : session ? t(isShortCourse ? 'Send course request' : 'Send course enquiry') : t('Send course interest')}
+            {submitting ? t('Please wait…') : session ? t(isShortCourse ? 'Book now' : 'Send course enquiry') : t('Send course interest')}
             <ArrowRight size={17} aria-hidden="true" />
           </button>
         </aside>
@@ -3886,6 +4192,11 @@ function NewsArticlePage({ session, onOpenLogin }: { session: Session | null; on
     )
   }
 
+  const articleParagraphs = (article.body ?? '')
+    .split(/\r?\n\s*\r?\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+
   const articleUrl = window.location.href
   const handleShare = async () => {
     setShareFeedback('')
@@ -3951,7 +4262,11 @@ function NewsArticlePage({ session, onOpenLogin }: { session: Session | null; on
         <p className="news-card-date">{formatLocaleDate(article.date, language)}</p>
         {article.summary && <p className="news-detail-summary">{article.summary}</p>}
       </header>
-      <div className="news-detail-body">{article.body}</div>
+      <div className="news-detail-body">
+        {articleParagraphs.map((paragraph, index) => (
+          <p className={index === 0 ? 'news-detail-lead' : undefined} key={index}>{paragraph}</p>
+        ))}
+      </div>
 
       <section className="news-share" aria-labelledby="news-share-heading">
         <h2 id="news-share-heading">{t('Share this story')}</h2>
@@ -4638,9 +4953,89 @@ function ContactPage() {
           >
             <Send size={18} aria-hidden="true" />{t('Send message')}
           </button>
-          {error && <p className="error-message">{t(error)}</p>}
-          {submitted && <p className="success-message">{t('Your message has been sent successfully.')}</p>}
+          {error && <p className="error-message" role="alert">{t(error)}</p>}
+          {submitted && <p className="success-message" role="status">{t('Your message has been sent successfully.')}</p>}
         </form>
+      </div>
+    </section>
+  )
+}
+
+function ResetPasswordPage({ onPasswordReset }: { onPasswordReset: () => void }) {
+  const t = useTranslate()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const token = searchParams.get('token') ?? ''
+  const [error, setError] = useState('')
+  const [complete, setComplete] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const hasValidTokenShape = /^[A-Za-z0-9_-]{43}$/.test(token)
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const password = String(form.get('password') ?? '')
+    const confirmation = String(form.get('confirmPassword') ?? '')
+    if (password !== confirmation) {
+      setError(t('Passwords do not match.'))
+      return
+    }
+    if (new TextEncoder().encode(password).length > 72) {
+      setError(t('Password must be no more than 72 bytes.'))
+      return
+    }
+
+    setError('')
+    setSubmitting(true)
+    try {
+      await postJson('/auth/reset-password', { token, password })
+      setComplete(true)
+      onPasswordReset()
+    } catch (requestError) {
+      setError(requestError instanceof Error ? t(requestError.message) : t('Unable to reset your password right now.'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <section className="content-page">
+      <header className="news-page-intro">
+        <span className="eyebrow">{t('Account access')}</span>
+        <h1>{t('Reset your password')}</h1>
+      </header>
+      <div className="auth-card">
+        {complete ? (
+          <>
+            <p className="success-message" role="status">{t('Your password has been reset. You can now sign in with your new password.')}</p>
+            <button type="button" className="primary-button" onClick={() => navigate('/login', { replace: true })}>
+              {t('Continue to login')}
+            </button>
+          </>
+        ) : !hasValidTokenShape ? (
+          <>
+            <p className="error-message" role="alert">{t('This password reset link is invalid or has expired. Request a new one.')}</p>
+            <Link className="primary-button" to="/login">{t('Back to login')}</Link>
+          </>
+        ) : (
+          <>
+            <p>{t('Choose a new password for your account.')}</p>
+            <form className="application-form" onSubmit={(event) => void handleSubmit(event)}>
+              <label>
+                {t('New password')}
+                <PasswordInput name="password" placeholder={t('Enter a secure password')} required minLength={8} autoComplete="new-password" />
+              </label>
+              <label>
+                {t('Confirm password')}
+                <PasswordInput name="confirmPassword" placeholder={t('Confirm password')} required minLength={8} autoComplete="new-password" />
+              </label>
+              <button type="submit" className="primary-button" disabled={submitting}>
+                {submitting ? t('Please wait...') : t('Reset password')}
+              </button>
+              {error && <p className="error-message" role="alert">{t(error)}</p>}
+            </form>
+          </>
+        )}
       </div>
     </section>
   )
@@ -4699,13 +5094,25 @@ function AuthDialog({
   const t = useTranslate()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [error, setError] = useState('')
+  const [resetNotice, setResetNotice] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     const dialog = dialogRef.current
     if (dialog && !dialog.open) dialog.showModal()
     document.body.classList.add('auth-dialog-open')
-    return () => document.body.classList.remove('auth-dialog-open')
+    let active = true
+    void getCsrfToken().catch((requestError: unknown) => {
+      if (active) {
+        setError(requestError instanceof Error
+          ? requestError.message
+          : 'Unable to initialize request security.')
+      }
+    })
+    return () => {
+      active = false
+      document.body.classList.remove('auth-dialog-open')
+    }
   }, [])
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -4721,14 +5128,21 @@ function AuthDialog({
       setError(t('Passwords do not match.'))
       return
     }
-    if (!email || !password || (mode === 'register' && (!name || !phone))) {
+    if (!email || (mode !== 'forgot' && !password) || (mode === 'register' && (!name || !phone))) {
       setError(t('Please complete all required details.'))
       return
     }
 
+    setError('')
+    setResetNotice('')
     setLoading(true)
 
     try {
+      if (mode === 'forgot') {
+        await postJson('/auth/forgot-password', { email })
+        setResetNotice(t('If an active account uses that email address, a password reset link will be sent.'))
+        return
+      }
       const response = await postJson<{ user: AppUser }>(
         mode === 'register' ? '/auth/register' : '/auth/login',
         mode === 'register' ? { name, email, phone, password } : { email, password }
@@ -4758,10 +5172,10 @@ function AuthDialog({
         <button type="button" className="auth-dialog-close" aria-label={t('Close')} onClick={onClose}>
           <X size={20} aria-hidden="true" />
         </button>
-        <span className="eyebrow">{t(mode === 'login' ? 'Welcome back' : 'Join the conversation')}</span>
-        <h1 id="auth-dialog-title">{t(mode === 'login' ? 'Login to your account' : 'Create an account')}</h1>
+        <span className="eyebrow">{t(mode === 'login' ? 'Welcome back' : mode === 'register' ? 'Join the conversation' : 'Account access')}</span>
+        <h1 id="auth-dialog-title">{t(mode === 'login' ? 'Login to your account' : mode === 'register' ? 'Create an account' : 'Forgot your password?')}</h1>
 
-        <form className="application-form" onSubmit={(event) => void handleSubmit(event)}>
+        {!resetNotice && <form className="application-form" onSubmit={(event) => void handleSubmit(event)}>
           {mode === 'register' && (
             <label>
               {t('Name')}
@@ -4776,10 +5190,9 @@ function AuthDialog({
             <label>
               {t('Phone number')}
               <input name="phone" type="tel" autoComplete="tel" placeholder="+255 7XX XXX XXX" minLength={7} maxLength={20} required />
-              <small>{t('The centre will call this number to confirm your contact before issuing a course payment control number. Shared family numbers are accepted.')}</small>
             </label>
           )}
-          <label>
+          {mode !== 'forgot' && <label>
             {t('Password')}
             <PasswordInput
               name="password"
@@ -4788,7 +5201,7 @@ function AuthDialog({
               minLength={mode === 'register' ? 8 : undefined}
               autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
             />
-          </label>
+          </label>}
           {mode === 'register' && (
             <label>
               {t('Confirm password')}
@@ -4806,21 +5219,38 @@ function AuthDialog({
               ? t('Please wait...')
               : mode === 'login'
                 ? <><LogIn size={18} aria-hidden="true" />{t('Login')}</>
-                : <><UserPlus size={18} aria-hidden="true" />{t('Register')}</>}
+                : mode === 'register'
+                  ? <><UserPlus size={18} aria-hidden="true" />{t('Register')}</>
+                  : t('Send reset link')}
           </button>
           {error && <p className="error-message" role="alert">{t(error)}</p>}
-        </form>
+        </form>}
+        {resetNotice && <>
+          <p className="success-message" role="status">{resetNotice}</p>
+          <p className="auth-helper">
+            <button type="button" className="auth-inline-link" onClick={() => onModeChange('login')}>{t('Back to login')}</button>
+          </p>
+        </>}
 
-        <p className="auth-helper">
-          {mode === 'login' ? t("Don't have an account?") : t('Already have an account?')}{' '}
-          <button
-            type="button"
-            className="auth-inline-link"
-            onClick={() => onModeChange(mode === 'login' ? 'register' : 'login')}
-          >
-            {t(mode === 'login' ? 'Register' : 'Login')}
-          </button>
-        </p>
+        {!resetNotice && mode === 'login' && <p className="auth-helper">
+          {t("Don't have an account?")}{' '}
+          <button type="button" className="auth-inline-link" onClick={() => onModeChange('register')}>{t('Register')}</button>
+          {' · '}
+          <button type="button" className="auth-inline-link" onClick={() => {
+            setError('')
+            onModeChange('forgot')
+          }}>{t('Forgot your password?')}</button>
+        </p>}
+        {!resetNotice && mode === 'register' && <p className="auth-helper">
+          {t('Already have an account?')}{' '}
+          <button type="button" className="auth-inline-link" onClick={() => onModeChange('login')}>{t('Login')}</button>
+        </p>}
+        {!resetNotice && mode === 'forgot' && <p className="auth-helper">
+          <button type="button" className="auth-inline-link" onClick={() => {
+            setError('')
+            onModeChange('login')
+          }}>{t('Back to login')}</button>
+        </p>}
       </div>
     </dialog>
   )
@@ -4859,7 +5289,6 @@ function UserDashboard({ session }: { session: Session }) {
     emergencyContactPhone: string
     confirmedStartDate: string | null
     createdAt: string
-    courseChoiceEditableUntil: string
     updatedAt: string
   }>>([])
   const [bookings, setBookings] = useState<Array<{
@@ -4885,17 +5314,10 @@ function UserDashboard({ session }: { session: Session }) {
   const [loading, setLoading] = useState(true)
   const [submittingInterestId, setSubmittingInterestId] = useState('')
   const [courseChoiceSelections, setCourseChoiceSelections] = useState<Record<string, string>>({})
-  const [dashboardNow, setDashboardNow] = useState<number | null>(null)
+  const [printableApplicationId, setPrintableApplicationId] = useState('')
+  const applicationPreviewDialogRef = useRef<HTMLDialogElement>(null)
   const { data: availableCourses, error: availableCoursesError } = useApiData<CourseCatalogItem>('/courses')
-
-  useEffect(() => {
-    const initialUpdate = window.setTimeout(() => setDashboardNow(Date.now()), 0)
-    const updateInterval = window.setInterval(() => setDashboardNow(Date.now()), 10_000)
-    return () => {
-      window.clearTimeout(initialUpdate)
-      window.clearInterval(updateInterval)
-    }
-  }, [])
+  const printableApplication = courseInterests.find((interest) => interest.id === printableApplicationId)
 
   useEffect(() => {
     Promise.all([
@@ -4915,6 +5337,13 @@ function UserDashboard({ session }: { session: Session }) {
       })
       .finally(() => setLoading(false))
   }, [session.user.id])
+
+  useEffect(() => {
+    const dialog = applicationPreviewDialogRef.current
+    if (!dialog) return
+    if (printableApplication && !dialog.open) dialog.showModal()
+    else if (!printableApplication && dialog.open) dialog.close()
+  }, [printableApplication])
 
   useEffect(() => {
     let active = true
@@ -5040,6 +5469,94 @@ function UserDashboard({ session }: { session: Session }) {
 
   return (
     <section className="content-page dashboard-page">
+      {printableApplication && (
+        <dialog
+          ref={applicationPreviewDialogRef}
+          className="course-application-preview-dialog"
+          aria-label={t('Short-course application preview')}
+          onCancel={(event) => {
+            event.preventDefault()
+            setPrintableApplicationId('')
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setPrintableApplicationId('')
+          }}
+        >
+          <div className="course-application-preview-actions">
+            <p>{t('Review your submitted form. Choose Save as PDF in the print dialog to download a copy.')}</p>
+            <div>
+              <button type="button" className="secondary-button compact-button" onClick={() => setPrintableApplicationId('')}>
+                {t('Close preview')}
+              </button>
+              <button type="button" className="primary-button compact-button" onClick={() => window.print()}>
+                <Download size={16} aria-hidden="true" />
+                {t('Download PDF')}
+              </button>
+            </div>
+          </div>
+          <article className="course-application-print" aria-label={t('Short-course application copy')}>
+          <header className="course-application-print-header">
+            <div className="course-application-print-brand">
+              <img src="/tanzania-coat-of-arms.png" alt={t('Coat of arms of the United Republic of Tanzania')} />
+              <div>
+                <strong>{t('VETA Kipawa ICT Centre')}</strong>
+                <span>{t('Vocational Education and Training Authority')}</span>
+                <span>{t('Dar es Salaam, Tanzania')}</span>
+              </div>
+              <img src="/veta-logo-official.jpg" alt={t('VETA logo')} />
+            </div>
+            <div className="course-application-print-title">
+              <div>
+                <span>{t('Learner copy')}</span>
+                <h1>{t('Short-course application form')}</h1>
+              </div>
+              <div className="course-application-print-reference">
+                <strong>{t('Application reference')}</strong>
+                <span>KICT-SC-{printableApplication.id.padStart(6, '0')}</span>
+              </div>
+            </div>
+          </header>
+
+          <section className="course-application-print-section">
+            <h2>{t('Course details')}</h2>
+            <div className="course-application-print-grid">
+              <div><span>{t('Course')}</span><strong>{printableApplication.course}</strong></div>
+              <div><span>{t('Training centre')}</span><strong>{t('VETA Kipawa ICT Centre')}</strong></div>
+              <div><span>{t('Application status')}</span><strong>{t(printableApplication.status.replaceAll('_', ' '))}</strong></div>
+              <div><span>{t('Confirmed course start date')}</span><strong>{printableApplication.confirmedStartDate
+                ? formatLocaleDate(printableApplication.confirmedStartDate, language)
+                : t('Not confirmed yet')}</strong></div>
+            </div>
+          </section>
+
+          <section className="course-application-print-section">
+            <h2>{t('Applicant details')}</h2>
+            <div className="course-application-print-grid">
+              <div><span>{t('Full name')}</span><strong>{printableApplication.fullName || t('Not provided')}</strong></div>
+              <div><span>{t('Date of birth')}</span><strong>{printableApplication.dateOfBirth
+                ? formatLocaleDate(printableApplication.dateOfBirth, language)
+                : t('Not provided')}</strong></div>
+              <div><span>{t('Email address')}</span><strong>{printableApplication.email || t('Not provided')}</strong></div>
+              <div><span>{t('Phone number')}</span><strong>{printableApplication.phone || t('Not provided')}</strong></div>
+              <div><span>{t('Gender')}</span><strong>{printableApplication.gender || t('Not provided')}</strong></div>
+              <div><span>{t('Nationality')}</span><strong>{printableApplication.nationality || t('Not provided')}</strong></div>
+              <div><span>{t('Current location')}</span><strong>{printableApplication.address || t('Not provided')}</strong></div>
+              <div><span>{t('Highest education level')}</span><strong>{printableApplication.educationLevel || t('Not provided')}</strong></div>
+              <div><span>{t('Emergency contact name')}</span><strong>{printableApplication.emergencyContactName || t('Not provided')}</strong></div>
+              <div><span>{t('Emergency contact phone')}</span><strong>{printableApplication.emergencyContactPhone || t('Not provided')}</strong></div>
+              <div><span>{t('Payment control number')}</span><strong>{printableApplication.controlNumber || t('Not provided')}</strong></div>
+              <div><span>{t('Application submitted')}</span><strong>{printableApplication.applicationSubmittedAt
+                ? formatLocaleDate(printableApplication.applicationSubmittedAt, language)
+                : t('Not provided')}</strong></div>
+            </div>
+          </section>
+
+          <footer className="course-application-print-footer">
+            {t('This is a copy of the course application submitted online to VETA Kipawa ICT Centre. It is not proof of admission or payment. Please bring it with you on the confirmed course start date.')}
+          </footer>
+          </article>
+        </dialog>
+      )}
       <div className={`dashboard-shell user-dashboard-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
         <div className="dashboard-main">
           <div className="dashboard-header-card" id="user-overview">
@@ -5156,18 +5673,14 @@ function UserDashboard({ session }: { session: Session }) {
             ) : null}
             <div className="learner-course-request-list">
               {courseInterests.map((interest) => {
-                const editableUntil = Date.parse(interest.courseChoiceEditableUntil)
                 const courseChoiceCanBeEdited = ['new', 'contacted'].includes(interest.status) &&
-                  !interest.controlNumber &&
-                  Number.isFinite(editableUntil) &&
-                  dashboardNow !== null &&
-                  dashboardNow < editableUntil
+                  !interest.controlNumber
                 const currentCourseSlug = interest.courseSlug ||
                   availableCourses.find((course) => course.name === interest.course)?.slug ||
                   ''
                 const step = interest.status === 'new' ? 0
                   : ['control_number_issued', 'payment_rejected', 'payment_submitted'].includes(interest.status) ? 1
-                    : interest.status === 'form_fee_verified' ? 2
+                    : ['form_fee_verified', 'course_fee_verified'].includes(interest.status) ? 2
                       : ['application_submitted', 'application_needs_changes'].includes(interest.status) ? 3
                         : 4
                 const stepLabels = ['Request sent', 'Form fee', 'Form verified', 'Application review', 'Decision']
@@ -5185,7 +5698,9 @@ function UserDashboard({ session }: { session: Session }) {
                   superseded: 'This request was replaced by a newer course request.',
                   start_date_sent: 'You are approved to join this course. Review your confirmed start date below.',
                   contacted: 'The centre is following up on this request.',
-                  course_fee_verified: 'Course fee verified — the centre will confirm your start date.',
+                  course_fee_verified: interest.applicationSubmittedAt
+                    ? 'Course fee verified — the centre will confirm your start date.'
+                    : 'Course fee verified — complete the course application below.',
                 }
                 return (
                   <article className="learner-course-request" key={interest.id}>
@@ -5195,9 +5710,7 @@ function UserDashboard({ session }: { session: Session }) {
                     </div>
                     {courseChoiceCanBeEdited ? (
                       <form className="learner-course-choice-form" onSubmit={(event) => void handleCourseChoiceUpdate(event, interest.id)}>
-                        <p>{t('You may change your course choice within three days of your request. It locks earlier if the centre issues your payment control number.')}
-                          <br /><strong>{t('Choice deadline')}:</strong> {new Date(editableUntil).toLocaleString(language === 'sw' ? 'sw-TZ' : 'en-GB')}
-                        </p>
+                        <p>{t('You can change your course choice any time before the centre issues your payment control number. Once it is issued, contact the centre to request a change.')}</p>
                         <label>{t('Choose a course')}
                           <select name="courseSlug" value={courseChoiceSelections[interest.id] ?? currentCourseSlug}
                             onChange={(event) => setCourseChoiceSelections((choices) => ({ ...choices, [interest.id]: event.target.value }))} required>
@@ -5214,14 +5727,10 @@ function UserDashboard({ session }: { session: Session }) {
                           {submittingInterestId === interest.id ? t('Please wait…') : t('Save course choice')}
                         </button>
                       </form>
-                    ) : dashboardNow === null && ['new', 'contacted'].includes(interest.status) && !interest.controlNumber ? (
-                      <p className="learner-course-choice-locked">{t('Checking your course-choice editing period…')}</p>
                     ) : !['superseded', 'application_declined'].includes(interest.status) && (
                       <p className="learner-course-choice-locked">{t(interest.controlNumber
                         ? 'Your course choice is locked because the centre has issued a payment control number.'
-                        : dashboardNow !== null && dashboardNow >= editableUntil
-                          ? 'Your three-day course choice editing period has ended.'
-                          : 'Your course choice is locked because payment processing has started.')}</p>
+                        : 'Your course choice is locked because payment processing has started.')}</p>
                     )}
                     <ol className="learner-course-progress" aria-label={t('Application progress')}>
                       {stepLabels.map((label, index) => (
@@ -5249,6 +5758,16 @@ function UserDashboard({ session }: { session: Session }) {
                     {interest.applicationFeedback && <p className={interest.status === 'application_declined' ? 'error-message learner-staff-feedback' : 'learner-staff-feedback'}>
                       <strong>{t('Centre note')}:</strong> {interest.applicationFeedback}
                     </p>}
+                    {interest.courseType === 'Short Course' && interest.applicationSubmittedAt && (
+                      <button
+                        type="button"
+                        className="secondary-button compact-button learner-download-application"
+                        onClick={() => setPrintableApplicationId(interest.id)}
+                      >
+                        <Download size={16} aria-hidden="true" />
+                        {t('Preview and download submitted form')}
+                      </button>
+                    )}
                     {interest.status === 'start_date_sent' && interest.confirmedStartDate && (
                       <p className="learner-start-date"><Calendar size={17} aria-hidden="true" /><strong>{t('Confirmed course start date')}:</strong> {formatLocaleDate(interest.confirmedStartDate, language)}</p>
                     )}
@@ -5261,7 +5780,10 @@ function UserDashboard({ session }: { session: Session }) {
                         </button>
                       </form>
                     )}
-                    {['form_fee_verified', 'application_needs_changes'].includes(interest.status) && (
+                    {(
+                      ['form_fee_verified', 'application_needs_changes'].includes(interest.status) ||
+                      (interest.status === 'course_fee_verified' && !interest.applicationSubmittedAt)
+                    ) && (
                       <form className="application-form learner-application-form" onSubmit={(event) => void handleApplicationSubmit(event, interest.id)}>
                         <h4>{t('Course joining application')}</h4>
                         <p>{t('Complete the required details so the centre can review your eligibility and contact you.')}</p>
@@ -5381,9 +5903,14 @@ function UserDashboard({ session }: { session: Session }) {
 
 function AdminPage({ session }: { session: Session }) {
   const t = useTranslate()
+  const courseCoordinator = isCourseCoordinator(session.user)
+  const shortCourseOnly = !courseCoordinator && session.user.role !== 'admin' &&
+    (session.user.permissions ?? []).includes('shortCourseCourses') &&
+    !(session.user.permissions ?? []).includes('courses')
   const permittedSections = managementSections.filter((item) => {
-    if (session.user.role === 'admin') return true
+    if (session.user.role === 'admin') return item !== 'Courses' && item !== 'Bookings'
     const permissions = session.user.permissions ?? []
+    if (item === 'Courses') return permissions.includes('courses') || permissions.includes('shortCourseCourses')
     return item === 'Bookings'
       ? permissions.includes('bookings') || permissions.includes('shortCourseEnquiries')
       : permissions.includes(managementSectionPermissions[item])
@@ -5392,16 +5919,38 @@ function AdminPage({ session }: { session: Session }) {
     permittedSections.includes('Courses') ? 'Courses' : permittedSections[0]
   )
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const openManagementSection = (section: ManagementSection) => {
+    setSelectedManagementSection(section)
+    document.getElementById('admin-management')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   return (
     <section className="content-page dashboard-page">
       <div className={`dashboard-shell admin-dashboard-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
         <div className="dashboard-main">
-          <div className="dashboard-header-card admin-header-card" id="admin-overview">
-            <div>
+          <div className={`dashboard-header-card admin-header-card${courseCoordinator ? ' course-coordinator-header-card' : ''}`} id="admin-overview">
+            <div className="course-coordinator-heading">
               <span className="eyebrow">{t('Administration')}</span>
-              <h2>{t('Manage news, courses and publications')}</h2>
+              <h2>{t(courseCoordinator ? 'Course Coordinator dashboard' : shortCourseOnly ? 'Short-course Coordinator dashboard' : 'Manage news, courses and publications')}</h2>
+              {courseCoordinator && <p>{t('Manage short and long course listings, update course information, and review learner requests from one workspace.')}</p>}
+              {shortCourseOnly && <p>{t('Manage short-course listings, learner bookings, payment verification and application follow-up from one workspace.')}</p>}
             </div>
+            {courseCoordinator && (
+              <div className="course-coordinator-actions" role="group" aria-label={t('Course coordination shortcuts')}>
+                <button type="button" className="course-coordinator-action" onClick={() => openManagementSection('Courses')}>
+                  <span className="course-coordinator-action-icon"><BookOpen size={19} aria-hidden="true" /></span>
+                  <span className="course-coordinator-action-copy"><strong>{t('Manage courses')}</strong><small>{t('Short and long courses')}</small></span>
+                  <ArrowRight size={17} aria-hidden="true" />
+                </button>
+                {permittedSections.includes('Bookings') && (
+                  <button type="button" className="course-coordinator-action" onClick={() => openManagementSection('Bookings')}>
+                    <span className="course-coordinator-action-icon"><Calendar size={19} aria-hidden="true" /></span>
+                    <span className="course-coordinator-action-copy"><strong>{t('Review learner requests')}</strong><small>{t('Applications and follow-up')}</small></span>
+                    <ArrowRight size={17} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <AdminManagement
@@ -5432,10 +5981,7 @@ function AdminPage({ session }: { session: Session }) {
                   key={item}
                   type="button"
                   className={`dashboard-menu-link admin-management-link${selectedManagementSection === item ? ' active' : ''}`}
-                  onClick={() => {
-                    setSelectedManagementSection(item)
-                    document.getElementById('admin-management')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                  }}
+                  onClick={() => openManagementSection(item)}
                   aria-current={selectedManagementSection === item ? 'page' : undefined}
                   title={t(item)}
                   aria-label={t(item)}
@@ -5644,6 +6190,268 @@ const managementSectionIcons = {
   'Site settings': Settings
 }
 
+function ShortCourseTickerBadgeManager({ badgeUrl, onSaved }: { badgeUrl: string | undefined; onSaved: () => Promise<void> }) {
+  const t = useTranslate()
+  const [badgeFile, setBadgeFile] = useState<File | null>(null)
+  const [removeBadge, setRemoveBadge] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const currentBadgeUrl = badgeUrl && /^\/uploads\/ticker-badges\/[\w-]+\.gif$/i.test(badgeUrl)
+    ? badgeUrl
+    : null
+
+  const saveBadge = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    setNotice('')
+    const removingBadge = removeBadge
+    const formData = new FormData()
+    if (badgeFile) formData.set('badgeImage', badgeFile)
+    if (removeBadge) formData.set('removeBadge', 'true')
+    try {
+      await mutateFormData('POST', '/admin/short-course-ticker-badge', formData)
+      setBadgeFile(null)
+      setRemoveBadge(false)
+      window.dispatchEvent(new Event(SITE_SETTINGS_CHANGED_EVENT))
+      await onSaved()
+      setNotice(removingBadge ? 'Ticker badge removed.' : 'Ticker badge saved.')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to save ticker badge.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <article className="organization-admin-record ticker-badge-admin-record">
+      <form className="application-form organization-admin-form" onSubmit={(event) => void saveBadge(event)}>
+        <div className="organization-admin-record-heading">
+          <div>
+            <h3>{t('Short-course ticker badge')}</h3>
+            <p>{t('Upload an optional GIF badge. It will fit automatically beside the scrolling announcement, and dark backgrounds will be changed to soft off-white.')}</p>
+          </div>
+        </div>
+        <div className="ticker-badge-admin-preview">
+          <span>{t('Preview')}</span>
+          {currentBadgeUrl && !removeBadge
+            ? <span className="ticker-badge-preview-frame"><img src={getMediaUrl(currentBadgeUrl)} alt={t('Short-course ticker badge preview')} /></span>
+            : <span className="short-course-ticker-badge">{t('New')}</span>}
+          {badgeFile && <span>{badgeFile.name}</span>}
+        </div>
+        <label>{t('Upload GIF badge (up to 5 MB)')}
+          <input
+            type="file"
+            accept="image/gif"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null
+              if (file && file.size > 5 * 1024 * 1024) {
+                setError('The GIF badge must be 5 MB or smaller.')
+                setBadgeFile(null)
+                event.target.value = ''
+                return
+              }
+              setError('')
+              setBadgeFile(file)
+              setRemoveBadge(false)
+            }}
+          />
+        </label>
+        {currentBadgeUrl && (
+          <label className="organization-admin-clear-image">
+            <input
+              type="checkbox"
+              checked={removeBadge}
+              disabled={Boolean(badgeFile)}
+              onChange={(event) => setRemoveBadge(event.target.checked)}
+            />
+            {t('Remove current ticker badge')}
+          </label>
+        )}
+        {error && <p className="error-message" role="alert">{t(error)}</p>}
+        {notice && <p className="success-message" role="status">{t(notice)}</p>}
+        <div className="organization-admin-actions">
+          <button className="primary-button" type="submit" disabled={saving || (!badgeFile && !removeBadge)}>
+            <Save size={16} aria-hidden="true" />{t(saving ? 'Saving…' : 'Save ticker badge')}
+          </button>
+        </div>
+      </form>
+    </article>
+  )
+}
+
+function LabImageManager({ settingValue, onSaved }: { settingValue: string | undefined; onSaved: () => Promise<void> }) {
+  const t = useTranslate()
+  const [selectedLabKey, setSelectedLabKey] = useState<(typeof LAB_IMAGE_OPTIONS)[number]['key']>(LAB_IMAGE_OPTIONS[0].key)
+  const [featuredFile, setFeaturedFile] = useState<File | null>(null)
+  const [relatedFiles, setRelatedFiles] = useState<File[]>([])
+  const [removedRelated, setRemovedRelated] = useState<string[]>([])
+  const [clearFeatured, setClearFeatured] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const currentImages = getLabImageSet(settingValue, selectedLabKey)
+  const visibleRelatedImages = currentImages.related.filter((imageUrl) => !removedRelated.includes(imageUrl))
+
+  const changeLab = (labKey: (typeof LAB_IMAGE_OPTIONS)[number]['key']) => {
+    setSelectedLabKey(labKey)
+    setFeaturedFile(null)
+    setRelatedFiles([])
+    setRemovedRelated([])
+    setClearFeatured(false)
+    setError('')
+    setNotice('')
+  }
+
+  const saveLabImages = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    setNotice('')
+    const formData = new FormData()
+    formData.set('labKey', selectedLabKey)
+    if (featuredFile) formData.set('featuredImage', featuredFile)
+    if (clearFeatured) formData.set('clearFeaturedImage', 'true')
+    visibleRelatedImages.forEach((imageUrl) => formData.append('relatedImageUrls', imageUrl))
+    relatedFiles.forEach((file) => formData.append('relatedImages', file))
+    try {
+      await mutateFormData('POST', '/admin/lab-images', formData)
+      setFeaturedFile(null)
+      setRelatedFiles([])
+      setRemovedRelated([])
+      setClearFeatured(false)
+      window.dispatchEvent(new Event(SITE_SETTINGS_CHANGED_EVENT))
+      await onSaved()
+      setNotice('Lab images saved.')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to save lab images.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <article className="organization-admin-record lab-image-admin-record">
+      <form className="application-form organization-admin-form" onSubmit={(event) => void saveLabImages(event)}>
+        <div className="organization-admin-record-heading">
+          <div>
+            <h3>{t('Lab images')}</h3>
+            <p>{t('Set a featured image and up to eight related images for each lab area.')}</p>
+          </div>
+        </div>
+        <label>{t('Lab area')}
+          <select
+            value={selectedLabKey}
+            onChange={(event) => {
+              const selectedLab = LAB_IMAGE_OPTIONS.find((lab) => lab.key === event.target.value)
+              if (selectedLab) changeLab(selectedLab.key)
+            }}
+          >
+            {LAB_IMAGE_OPTIONS.map((lab) => <option key={lab.key} value={lab.key}>{t(lab.title)}</option>)}
+          </select>
+        </label>
+        <div className="lab-image-admin-featured">
+          <div>
+            <h4>{t('Featured image')}</h4>
+            {currentImages.featured && !clearFeatured && !featuredFile && (
+              <img src={getMediaUrl(currentImages.featured)} alt="" loading="lazy" decoding="async" />
+            )}
+            {featuredFile && <p>{featuredFile.name}</p>}
+          </div>
+          <label>{t('Upload featured image (JPEG, PNG or WebP, up to 5 MB)')}
+            <input
+              key={`featured-${selectedLabKey}`}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null
+                if (file && file.size > 5 * 1024 * 1024) {
+                  setError('Each lab image must be 5 MB or smaller.')
+                  setFeaturedFile(null)
+                  event.target.value = ''
+                  return
+                }
+                setError('')
+                setFeaturedFile(file)
+                setClearFeatured(false)
+              }}
+            />
+          </label>
+          {featuredFile && (
+            <button type="button" className="secondary-button compact-button" onClick={() => setFeaturedFile(null)}>
+              <X size={14} aria-hidden="true" />{t('Clear selected image')}
+            </button>
+          )}
+          {currentImages.featured && (
+            <label className="organization-admin-clear-image">
+              <input type="checkbox" checked={clearFeatured} disabled={Boolean(featuredFile)} onChange={(event) => setClearFeatured(event.target.checked)} />
+              {t('Remove current featured image')}
+            </label>
+          )}
+        </div>
+        <div className="lab-image-admin-related">
+          <h4>{t('Related images')} ({visibleRelatedImages.length + relatedFiles.length}/8)</h4>
+          {visibleRelatedImages.length > 0 && (
+            <div className="lab-image-admin-grid">
+              {visibleRelatedImages.map((imageUrl) => (
+                <figure key={imageUrl}>
+                  <img src={getMediaUrl(imageUrl)} alt="" loading="lazy" decoding="async" />
+                  <button type="button" className="secondary-button compact-button" aria-label={t('Remove related image')} onClick={() => setRemovedRelated((items) => [...items, imageUrl])}>
+                    <X size={14} aria-hidden="true" />{t('Remove')}
+                  </button>
+                </figure>
+              ))}
+            </div>
+          )}
+          <label>{t('Add related images (JPEG, PNG or WebP, up to 5 MB each)')}
+            <input
+              key={`related-${selectedLabKey}`}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              disabled={visibleRelatedImages.length + relatedFiles.length >= 8}
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? [])
+                const availableSlots = 8 - visibleRelatedImages.length
+                if (files.some((file) => file.size > 5 * 1024 * 1024)) {
+                  setError('Each lab image must be 5 MB or smaller.')
+                  setRelatedFiles([])
+                } else if (files.length > availableSlots) {
+                  setError('Each lab can have up to eight related images.')
+                  setRelatedFiles(files.slice(0, availableSlots))
+                } else {
+                  setError('')
+                  setRelatedFiles(files)
+                }
+              }}
+            />
+          </label>
+          {relatedFiles.length > 0 && (
+            <ul className="lab-image-admin-file-list">
+              {relatedFiles.map((file, index) => (
+                <li key={`${file.name}-${index}`}>
+                  <span>{file.name}</span>
+                  <button type="button" className="secondary-button compact-button" aria-label={`${t('Remove')} ${file.name}`} onClick={() => setRelatedFiles((items) => items.filter((_, fileIndex) => fileIndex !== index))}>
+                    <X size={14} aria-hidden="true" />{t('Remove')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {error && <p className="error-message" role="alert">{t(error)}</p>}
+        {notice && <p className="success-message" role="status">{t(notice)}</p>}
+        <div className="organization-admin-actions">
+          <button className="primary-button" type="submit" disabled={saving}>
+            <Save size={16} aria-hidden="true" />{t(saving ? 'Saving…' : 'Save lab images')}
+          </button>
+        </div>
+      </form>
+    </article>
+  )
+}
+
 function downloadCourseBookingsCsv(
   leads: AdminManagementData['courseBookings'],
   course: string
@@ -5708,6 +6516,9 @@ function AdminManagement({
 }) {
   const t = useTranslate()
   const { language } = useLanguage()
+  const shortCourseOnly = !isCourseCoordinator(session.user) && session.user.role !== 'admin' &&
+    (session.user.permissions ?? []).includes('shortCourseCourses') &&
+    !(session.user.permissions ?? []).includes('courses')
   const [data, setData] = useState<AdminManagementData | null>(null)
   const [courseRowsRevision, setCourseRowsRevision] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -6032,6 +6843,8 @@ function AdminManagement({
   const editableSettings = Object.entries(data.settings).filter(([key]) =>
     key !== 'home.advertisement' &&
     key !== SHORT_COURSE_TICKER_SETTING_KEY &&
+    key !== SHORT_COURSE_TICKER_BADGE_SETTING_KEY &&
+    key !== LAB_IMAGE_SETTING_KEY &&
     key !== 'home.statsStaff' &&
     key !== 'home.statsStudents' &&
     !['home.statsUndergraduate', 'home.statsPostgraduate', 'home.statsEmployees', 'home.statsProgrammes'].includes(key)
@@ -6179,10 +6992,13 @@ function AdminManagement({
           <p className="management-translation-help">
             {t('The admin list includes all courses, even when they are not currently public. Public short courses appear only between their publish dates. Set both dates when adding or updating a short course. Add the actual training start date and time and an optional end date. The NEW badge is shown only while the short course is within its publication dates.')}
           </p>
+          <p className="management-translation-help">
+            {t('The featured image on the long-course programme panel uses the cover image of the first course in that programme. Update that course cover image here to change the featured image.')}
+          </p>
           <div className="course-management-toolbar">
             <h3>{t('Courses')} ({visibleAdminCourses.length})</h3>
             <div className="course-filters" role="group" aria-label={t('Filter courses')}>
-              {courseTypeFilters.map((filter) => (
+              {courseTypeFilters.filter((filter) => !shortCourseOnly || filter.value !== 'Long Course').map((filter) => (
                 <button
                   key={filter.value}
                   type="button"
@@ -6194,12 +7010,22 @@ function AdminManagement({
                 </button>
               ))}
             </div>
-            <button type="button" className="primary-button" onClick={() => {
-              setNewCourseType('Short Course')
-              setIsCourseDialogOpen(true)
-            }}>
-              <Plus size={18} aria-hidden="true" />{t('Add upcoming short course')}
-            </button>
+            <div className="course-management-add-actions">
+              <button type="button" className="primary-button" onClick={() => {
+                setNewCourseType('Short Course')
+                setIsCourseDialogOpen(true)
+              }}>
+                <Plus size={18} aria-hidden="true" />{t('Add upcoming short course')}
+              </button>
+              {!shortCourseOnly && (
+                <button type="button" className="secondary-button" onClick={() => {
+                  setNewCourseType('Long Course')
+                  setIsCourseDialogOpen(true)
+                }}>
+                  <Plus size={18} aria-hidden="true" />{t('Add long course')}
+                </button>
+              )}
+            </div>
           </div>
           <dialog
             ref={courseDialogRef}
@@ -6225,13 +7051,13 @@ function AdminManagement({
               <div className="course-admin-dialog-heading">
                 <div>
                   <span className="eyebrow">{t('Course announcements')}</span>
-                  <h2 id="course-admin-dialog-title">{newCourseType === 'Short Course' ? t('Add upcoming short course') : t('Add course')}</h2>
+                  <h2 id="course-admin-dialog-title">{newCourseType === 'Short Course' ? t('Add upcoming short course') : t('Add long course')}</h2>
                   <p>{t('Enter the course details, training start date and public listing dates. The course appears on the website only during its publication dates.')}</p>
                 </div>
                 <button type="button" className="secondary-button action-icon-button" onClick={() => setIsCourseDialogOpen(false)}
                   aria-label={t('Close')} title={t('Close')}><X size={18} aria-hidden="true" /></button>
               </div>
-              <label>{t('Course type')}<select name="courseType" value={newCourseType} onChange={(event) => setNewCourseType(event.target.value === 'Short Course' ? 'Short Course' : 'Long Course')}><option value="Long Course">{t('Long Course')}</option><option value="Short Course">{t('Short Course')}</option></select></label>
+              <label>{t('Course type')}<select name="courseType" value={newCourseType} onChange={(event) => setNewCourseType(event.target.value === 'Short Course' ? 'Short Course' : 'Long Course')} disabled={shortCourseOnly}><option value="Long Course" disabled={shortCourseOnly}>{t('Long Course')}</option><option value="Short Course">{t('Short Course')}</option></select></label>
               <label>{t('Name')}<input name="name" required /></label><label>{t('Name (Kiswahili)')}<input name="nameSw" /></label>
               <label>{t('Level')}<input name="level" required /></label><label>{t('Level (Kiswahili)')}<input name="levelSw" /></label>
               <label>{t('Duration')}<input name="duration" required /></label><label>{t('Duration (Kiswahili)')}<input name="durationSw" /></label>
@@ -6249,7 +7075,7 @@ function AdminManagement({
               <p className="course-interest-location"><MapPin size={16} />{t('Training takes place at VETA Kipawa ICT Centre.')}</p>
               <div className="course-admin-dialog-actions">
                 <button className="primary-button" type="submit" disabled={loading}>
-                  <Plus size={18} aria-hidden="true" />{newCourseType === 'Short Course' ? t('Save upcoming short course') : t('Add course')}
+                  <Plus size={18} aria-hidden="true" />{newCourseType === 'Short Course' ? t('Save upcoming short course') : t('Save long course')}
                 </button>
                 <button className="secondary-button" type="button" onClick={() => setIsCourseDialogOpen(false)}>{t('Cancel')}</button>
               </div>
@@ -6265,7 +7091,7 @@ function AdminManagement({
                 <td><input aria-label={t('Level')} name="level" form={formId} defaultValue={course.level} required />
                   <input aria-label={t('Level (Kiswahili)')} name="levelSw" form={formId} defaultValue={course.levelSw} placeholder={t('Kiswahili translation')} /></td>
                 <td><select aria-label={t('Course type')} name="courseType" form={formId} defaultValue={course.courseType ?? 'Long Course'}>
-                  <option value="Long Course">{t('Long Course')}</option><option value="Short Course">{t('Short Course')}</option>
+                  {!shortCourseOnly && <option value="Long Course">{t('Long Course')}</option>}<option value="Short Course">{t('Short Course')}</option>
                 </select></td>
                 <td><select aria-label={t('Category')} name="category" form={formId} defaultValue={course.category}>{data.courseCategories.map((category) => <option key={category} value={category}>{t(category)}</option>)}</select></td>
                 <td><input aria-label={t('Duration')} name="duration" form={formId} defaultValue={course.duration} required />
@@ -6345,7 +7171,7 @@ function AdminManagement({
             <h3>{t('Publish news article')}</h3>
             <label>{t('Title')}<input name="title" required /></label><label>{t('Title (Kiswahili)')}<input name="titleSw" /></label>
             <label>{t('Summary')}<textarea name="summary" rows={2} /></label><label>{t('Summary (Kiswahili)')}<textarea name="summarySw" rows={2} /></label>
-            <label>{t('Article body')}<textarea name="body" rows={4} required /></label><label>{t('Article body (Kiswahili)')}<textarea name="bodySw" rows={4} /></label>
+            <label>{t('Article body')}<textarea name="body" rows={6} placeholder={t('Separate paragraphs with a blank line.')} required /></label><label>{t('Article body (Kiswahili)')}<textarea name="bodySw" rows={6} placeholder={t('Separate paragraphs with a blank line.')} /></label>
             <label>{t('News image (up to 5 MB)')}<input name="image" type="file" accept="image/jpeg,image/png,image/webp,image/gif" /></label>
             <label>{t('Upload news video (MP4 or WebM; up to 50 MB)')}<input name="video" type="file" accept="video/mp4,video/webm" /></label>
             <label>{t('YouTube video link')}<input name="youtubeUrl" type="url" placeholder={t('YouTube URL')} /></label>
@@ -6362,8 +7188,8 @@ function AdminManagement({
                   <input aria-label={t('Title (Kiswahili)')} name="titleSw" form={formId} defaultValue={article.titleSw} placeholder={t('Kiswahili translation')} /></td>
                 <td><textarea aria-label={t('Summary')} name="summary" form={formId} defaultValue={article.summary} rows={2} />
                   <textarea aria-label={t('Summary (Kiswahili)')} name="summarySw" form={formId} defaultValue={article.summarySw} rows={2} placeholder={t('Kiswahili translation')} /></td>
-                <td><textarea aria-label={t('Article body')} name="body" form={formId} defaultValue={article.body} rows={2} required />
-                  <textarea aria-label={t('Article body (Kiswahili)')} name="bodySw" form={formId} defaultValue={article.bodySw} rows={2} placeholder={t('Kiswahili translation')} /></td>
+                <td><textarea aria-label={t('Article body')} name="body" form={formId} defaultValue={article.body} rows={4} placeholder={t('Separate paragraphs with a blank line.')} required />
+                  <textarea aria-label={t('Article body (Kiswahili)')} name="bodySw" form={formId} defaultValue={article.bodySw} rows={4} placeholder={t('Separate paragraphs with a blank line.')} /></td>
                 <td>
                   {article.imageUrl && <img className="admin-news-thumbnail" src={getMediaUrl(article.imageUrl)} alt="" />}
                   <input aria-label={`${t('Replace image for')} ${article.title}`} name="image" form={formId} type="file" accept="image/jpeg,image/png,image/webp,image/gif" />
@@ -6404,7 +7230,7 @@ function AdminManagement({
           <div className="admin-table-wrap course-leads-table">
             <div className="section-header">
               <div>
-                <h3>{t('Course registration requests')} ({visibleLeads.length})</h3>
+                <h3 className="course-leads-title"><FileText size={21} aria-hidden="true" />{t('Course registration requests')} ({visibleLeads.length})</h3>
                 <p>{t('Learners who submitted course booking requests. Follow up to confirm details and availability.')}</p>
               </div>
               <div className="course-leads-actions">
@@ -6428,19 +7254,19 @@ function AdminManagement({
             </div>
             <div className="course-leads-alerts" aria-label={t('Applicant workflow summary')}>
               <div className="course-leads-alert warning">
-                <span>{t('New requests')}</span>
+                <Clock3 size={20} aria-hidden="true" /><span>{t('New requests')}</span>
                 <strong>{newRequestCount}</strong>
               </div>
               <div className="course-leads-alert primary">
-                <span>{t('Payments to verify')}</span>
+                <ShieldCheck size={20} aria-hidden="true" /><span>{t('Payments to verify')}</span>
                 <strong>{paymentReviewCount}</strong>
               </div>
               <div className="course-leads-alert accent">
-                <span>{t('Applications to review')}</span>
+                <FileText size={20} aria-hidden="true" /><span>{t('Applications to review')}</span>
                 <strong>{applicationReviewCount}</strong>
               </div>
               <div className="course-leads-alert success">
-                <span>{t('Applicants with a message')}</span>
+                <MessageCircle size={20} aria-hidden="true" /><span>{t('Applicants with a message')}</span>
                 <strong>{messageCount}</strong>
               </div>
             </div>
@@ -6477,7 +7303,10 @@ function AdminManagement({
                                   : lead.status === 'application_declined' ? 'Application declined'
                                     : lead.status === 'course_fee_verified' ? 'Course fee verified'
                                       : 'Start date sent')}</span>
-                    {['new', 'payment_submitted', 'application_submitted', 'course_fee_verified'].includes(lead.status) &&
+                    {(
+                      ['new', 'payment_submitted', 'application_submitted'].includes(lead.status) ||
+                      (lead.status === 'course_fee_verified' && !lead.userId)
+                    ) &&
                       <small className="course-lead-action-needed">{t('Action required')}</small>}
                     {lead.contactedAt && <small>{t('Contacted')}: {formatLocaleDate(lead.contactedAt, language)}</small>}
                     {lead.proofFeedback && <small>{t('Payment review')}: {lead.proofFeedback}</small>}
@@ -6495,7 +7324,7 @@ function AdminManagement({
                     {lead.status === 'new' && lead.userId && !lead.phoneVerifiedAt && lead.phone && (
                       <button type="button" className="secondary-button compact-button" disabled={loading}
                         onClick={() => void progressCourseBooking(lead.id, 'verify_phone')}>
-                        {t('Confirm phone number')}
+                        <Phone size={15} aria-hidden="true" />{t('Confirm phone number')}
                       </button>
                     )}
                     {lead.status === 'new' && lead.userId && !lead.phone && <small>{t('Add a phone number to the learner account before confirming it.')}</small>}
@@ -6505,7 +7334,7 @@ function AdminManagement({
                         placeholder={t('Payment control number')} />
                       <button type="button" className="secondary-button compact-button" disabled={loading || !leadControlNumbers[lead.id]?.trim()}
                         onClick={() => void progressCourseBooking(lead.id, 'issue_control_number', { controlNumber: leadControlNumbers[lead.id].trim() })}>
-                        {t('Issue control number')}
+                        <ShieldCheck size={15} aria-hidden="true" />{t('Issue control number')}
                       </button>
                     </>}
                     {lead.status === 'new' && !lead.userId && <button type="button" className="secondary-button action-icon-button" disabled={loading}
@@ -6513,7 +7342,7 @@ function AdminManagement({
                       aria-label={t('Mark contacted')} title={t('Mark contacted')}><UserRoundCheck size={18} aria-hidden="true" /></button>}
                     {lead.status === 'payment_submitted' && <>
                       <button type="button" className="secondary-button compact-button" disabled={loading}
-                        onClick={() => void viewPaymentProof(lead.id)}>{t('View payment screenshot')}</button>
+                        onClick={() => void viewPaymentProof(lead.id)}><Eye size={15} aria-hidden="true" />{t('View payment screenshot')}</button>
                       <label>
                         {t('Official transaction reference')}
                         <input
@@ -6548,13 +7377,13 @@ function AdminManagement({
                         onClick={() => void progressCourseBooking(lead.id, 'verify_form_fee', {
                           paymentTransactionReference: leadPaymentReferences[lead.id]?.trim() ?? '',
                           verifiedAmount: Number(leadPaymentAmounts[lead.id])
-                        })}>{t('Verify TSh 5,000 form fee')}</button>
+                        })}><Check size={15} aria-hidden="true" />{t('Verify TSh 5,000 form fee')}</button>
                       <button type="button" className="secondary-button compact-button" disabled={loading}
                         onClick={() => {
                           setError('')
                           setProofRejectionBookingId((currentId) => currentId === lead.id ? '' : lead.id)
                           setProofRejectionFeedback('')
-                        }}>{t('Reject screenshot')}</button>
+                        }}><ThumbsDown size={15} aria-hidden="true" />{t('Reject screenshot')}</button>
                       {proofRejectionBookingId === lead.id && (
                         <form className="proof-rejection-form" onSubmit={(event) => void submitProofRejection(event, lead.id)}>
                           <label htmlFor={`proof-rejection-feedback-${lead.id}`}>{t('Reason for rejecting payment screenshot')}</label>
@@ -6592,7 +7421,10 @@ function AdminManagement({
                       onClick={() => void progressCourseBooking(lead.id, 'verify_form_fee')}
                       aria-label={t('Verify TSh 5,000 form fee')} title={t('Verify TSh 5,000 form fee')}><Check size={18} aria-hidden="true" /></button>}
                     {lead.status === 'payment_rejected' && <span>{t('Learner may upload a corrected screenshot')}</span>}
-                    {lead.status === 'form_fee_verified' && <button type="button" className="secondary-button action-icon-button" disabled={loading}
+                    {lead.status === 'form_fee_verified' && lead.userId && (
+                      <span>{t('Waiting for learner to complete the application form')}</span>
+                    )}
+                    {lead.status === 'form_fee_verified' && !lead.userId && <button type="button" className="secondary-button action-icon-button" disabled={loading}
                       onClick={() => void progressCourseBooking(lead.id, 'verify_course_fee')}
                       aria-label={t('Verify course fee')} title={t('Verify course fee')}><Check size={18} aria-hidden="true" /></button>}
                     {lead.status === 'application_submitted' && <>
@@ -6600,16 +7432,19 @@ function AdminManagement({
                         value={leadStartDates[lead.id] ?? ''} onChange={(event) => setLeadStartDates((dates) => ({ ...dates, [lead.id]: event.target.value }))} />
                       <button type="button" className="secondary-button compact-button" disabled={loading || !leadStartDates[lead.id]}
                         onClick={() => void progressCourseBooking(lead.id, 'send_start_date', { confirmedStartDate: leadStartDates[lead.id] })}>
-                        {t('Approve and send start date')}
+                        <Calendar size={15} aria-hidden="true" />{t('Approve and send start date')}
                       </button>
                       <button type="button" className="secondary-button compact-button" disabled={loading}
-                        onClick={() => askForLeadFeedback(lead.id, 'request_application_changes')}>{t('Request changes')}</button>
+                        onClick={() => askForLeadFeedback(lead.id, 'request_application_changes')}><FileText size={15} aria-hidden="true" />{t('Request changes')}</button>
                       <button type="button" className="secondary-button compact-button" disabled={loading}
-                        onClick={() => askForLeadFeedback(lead.id, 'decline_application')}>{t('Decline application')}</button>
+                        onClick={() => askForLeadFeedback(lead.id, 'decline_application')}><X size={15} aria-hidden="true" />{t('Decline application')}</button>
                     </>}
                     {lead.status === 'application_needs_changes' && <span>{t('Waiting for learner to update application')}</span>}
                     {lead.status === 'application_declined' && <span>{t('Application declined')}</span>}
-                    {lead.status === 'course_fee_verified' && <>
+                    {lead.status === 'course_fee_verified' && lead.userId && !lead.applicationSubmittedAt && (
+                      <span>{t('Waiting for learner to complete the application form')}</span>
+                    )}
+                    {lead.status === 'course_fee_verified' && !lead.userId && <>
                       <input aria-label={t('Confirmed start date')} name={`confirmedStartDate-${lead.id}`} type="date" min={COURSE_INTEREST_DATE_MAX}
                         value={leadStartDates[lead.id] ?? ''} onChange={(event) => setLeadStartDates((dates) => ({ ...dates, [lead.id]: event.target.value }))} />
                       <button type="button" className="secondary-button action-icon-button" disabled={loading || !leadStartDates[lead.id]}
@@ -6850,6 +7685,43 @@ function AdminManagement({
 
       {section === 'Site settings' && (
         <>
+          <LabImageManager settingValue={data.settings[LAB_IMAGE_SETTING_KEY]} onSaved={loadData} />
+          <ShortCourseTickerBadgeManager badgeUrl={data.settings[SHORT_COURSE_TICKER_BADGE_SETTING_KEY]} onSaved={loadData} />
+          <form
+            key={`${data.settings['home.statsStudents'] ?? ''}-${data.settings['home.statsStaff'] ?? ''}`}
+            className="application-form management-create-form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const form = event.currentTarget
+              const formData = new FormData(form)
+              setLoading(true)
+              setError('')
+              setNotice('')
+              void Promise.all([
+                mutateJson('PUT', '/admin/site-settings/home.statsStudents', { value: formData.get('students') }),
+                mutateJson('PUT', '/admin/site-settings/home.statsStaff', { value: formData.get('staff') })
+              ]).then(async () => {
+                window.dispatchEvent(new Event(SITE_SETTINGS_CHANGED_EVENT))
+                setNotice('Changes saved.')
+                await loadData()
+              }).catch((requestError: unknown) => {
+                setNotice('')
+                setError(requestError instanceof Error ? requestError.message : 'Unable to save changes.')
+                setLoading(false)
+              })
+            }}
+          >
+            <h3>{t('Homepage statistics')}</h3>
+            <p>{t('Enter centre-approved staff and student totals. These figures are maintained by administrators and do not update automatically.')}</p>
+            <label>{t('Total students')}
+              <input name="students" type="number" min="0" max="999999999" step="1" defaultValue={data.settings['home.statsStudents'] ?? ''} required />
+            </label>
+            <label>{t('Total staff')}
+              <input name="staff" type="number" min="0" max="999999999" step="1" defaultValue={data.settings['home.statsStaff'] ?? ''} required />
+            </label>
+            <button className="primary-button action-icon-button" type="submit"
+              aria-label={t('Save statistics')} title={t('Save statistics')}><Save size={18} aria-hidden="true" /></button>
+          </form>
           <form
             key={`${data.settings[SHORT_COURSE_TICKER_SETTING_KEY] ?? ''}-${data.settingsSw[SHORT_COURSE_TICKER_SETTING_KEY] ?? ''}`}
             className="application-form management-create-form"
@@ -6859,7 +7731,7 @@ function AdminManagement({
             }))}
           >
             <h3>{t('Short-course announcement ticker')}</h3>
-            <p>{t('Use {startDate} in the message to insert the earliest upcoming short-course start date automatically. Course dates and the NEW badge are managed in Courses.')}</p>
+            <p>{t('Use {startDate} in the message to insert the earliest upcoming short-course start date automatically. Course dates are managed in Courses; the optional image badge is managed in Site settings.')}</p>
             <label>{t('Ticker message')}<textarea name="value" rows={3} defaultValue={data.settings[SHORT_COURSE_TICKER_SETTING_KEY] || DEFAULT_SHORT_COURSE_TICKER} required /></label>
             <label>{t('Ticker message (Kiswahili)')}<textarea name="valueSw" rows={3} defaultValue={data.settingsSw[SHORT_COURSE_TICKER_SETTING_KEY] ?? ''} /></label>
             <button className="primary-button action-icon-button" type="submit"

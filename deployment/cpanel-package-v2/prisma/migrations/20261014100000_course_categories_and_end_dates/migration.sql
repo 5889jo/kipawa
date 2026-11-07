@@ -1,0 +1,3 @@
+ALTER TABLE "Course"
+ADD COLUMN "category" TEXT NOT NULL DEFAULT 'Other',
+ADD COLUMN "endDate" TIMESTAMP(3);

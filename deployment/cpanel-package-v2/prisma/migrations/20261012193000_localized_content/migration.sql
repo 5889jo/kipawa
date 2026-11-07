@@ -1,0 +1,15 @@
+ALTER TABLE "Region" ADD COLUMN "nameSw" TEXT;
+ALTER TABLE "District" ADD COLUMN "nameSw" TEXT;
+ALTER TABLE "TrainingCentre" ADD COLUMN "nameSw" TEXT;
+ALTER TABLE "TrainingCentre" ADD COLUMN "typeSw" TEXT;
+ALTER TABLE "TrainingCentre" ADD COLUMN "focusSw" TEXT;
+ALTER TABLE "Course" ADD COLUMN "nameSw" TEXT;
+ALTER TABLE "Course" ADD COLUMN "descriptionSw" TEXT;
+ALTER TABLE "Course" ADD COLUMN "levelSw" TEXT;
+ALTER TABLE "Course" ADD COLUMN "durationSw" TEXT;
+ALTER TABLE "NewsArticle" ADD COLUMN "titleSw" TEXT;
+ALTER TABLE "NewsArticle" ADD COLUMN "categorySw" TEXT;
+ALTER TABLE "NewsArticle" ADD COLUMN "summarySw" TEXT;
+ALTER TABLE "NewsArticle" ADD COLUMN "bodySw" TEXT;
+ALTER TABLE "Publication" ADD COLUMN "titleSw" TEXT;
+ALTER TABLE "SiteSetting" ADD COLUMN "valueSw" TEXT;

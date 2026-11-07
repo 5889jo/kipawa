@@ -6,6 +6,7 @@ backend/node_modules
 frontend/dist
 backend/dist
 deployment/cpanel/package
+deployment/cpanel-package
 backend/uploads
 backend/src/generated/prisma
 coverage

@@ -4,23 +4,85 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/kipawalogoveta-01.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="VETA Kipawa ICT Centre in Dar es Salaam offers practical ICT, electrical, electronics, and mechatronics training, courses, admissions information, and learner resources." />
+    <meta name="description" content="Explore practical ICT, electrical, electronics and mechatronics training at VETA Kipawa ICT Centre in Dar es Salaam, Tanzania." />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="theme-color" content="#073274" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="VETA Kipawa ICT Centre | Practical Technical Training" />
     <meta property="og:description" content="Explore practical ICT and technical training, courses, news, admissions information, and learner resources at VETA Kipawa ICT Centre." />
-    <meta property="og:image" content="/Halombili-01.svg" />
+    <meta property="og:image" content="/stats-background.png" />
     <meta property="og:locale" content="en_TZ" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="VETA Kipawa ICT Centre" />
     <meta name="twitter:description" content="Practical ICT and technical training in Dar es Salaam." />
-    <meta name="twitter:image" content="/Halombili-01.svg" />
-    <link rel="preload" as="image" href="/Halombili-01.svg" fetchpriority="high" />
+    <meta name="twitter:image" content="/stats-background.png" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https:; media-src 'self' blob: https:; frame-src 'self' https://www.youtube-nocookie.com https://www.google.com https://maps.google.com; object-src 'none'; base-uri 'self'; form-action 'self'" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oxygen:wght@400;700&display=swap" rel="stylesheet" />
+    <style>
+      .page-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        background: #fff;
+        color: #073274;
+        opacity: 1;
+        visibility: visible;
+        transition: opacity 300ms ease, visibility 300ms ease;
+      }
+
+      .page-loader--hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .page-loader__spinner {
+        position: relative;
+        width: 76px;
+        height: 76px;
+      }
+
+      .page-loader__logo {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 70px;
+        height: 70px;
+        object-fit: contain;
+        transform: translate(-50%, -50%);
+      }
+
+      .page-loader__dot {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 7px;
+        height: 7px;
+        margin: -3.5px;
+        border-radius: 50%;
+        background: currentColor;
+        transform: rotate(var(--rotation)) translateY(-32px);
+        animation: page-loader-pulse 1.1s ease-in-out infinite;
+        animation-delay: var(--delay);
+      }
+
+      @keyframes page-loader-pulse {
+        0%, 100% { opacity: 0.25; }
+        50% { opacity: 1; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .page-loader,
+        .page-loader__dot {
+          animation: none;
+          transition: none;
+        }
+      }
+    </style>
     <title>VETA Kipawa ICT Centre | Practical Technical Training</title>
     <script type="application/ld+json">
       {
@@ -41,6 +103,23 @@
     </script>
   </head>
   <body>
+    <div id="page-loader" class="page-loader" role="status" aria-label="Loading page">
+      <div class="page-loader__spinner" aria-hidden="true">
+        <img class="page-loader__logo" src="/kipawalogoveta-01.svg" alt="" />
+        <span class="page-loader__dot" style="--rotation: 0deg; --delay: 0ms"></span>
+        <span class="page-loader__dot" style="--rotation: 30deg; --delay: -90ms"></span>
+        <span class="page-loader__dot" style="--rotation: 60deg; --delay: -180ms"></span>
+        <span class="page-loader__dot" style="--rotation: 90deg; --delay: -270ms"></span>
+        <span class="page-loader__dot" style="--rotation: 120deg; --delay: -360ms"></span>
+        <span class="page-loader__dot" style="--rotation: 150deg; --delay: -450ms"></span>
+        <span class="page-loader__dot" style="--rotation: 180deg; --delay: -540ms"></span>
+        <span class="page-loader__dot" style="--rotation: 210deg; --delay: -630ms"></span>
+        <span class="page-loader__dot" style="--rotation: 240deg; --delay: -720ms"></span>
+        <span class="page-loader__dot" style="--rotation: 270deg; --delay: -810ms"></span>
+        <span class="page-loader__dot" style="--rotation: 300deg; --delay: -900ms"></span>
+        <span class="page-loader__dot" style="--rotation: 330deg; --delay: -990ms"></span>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
