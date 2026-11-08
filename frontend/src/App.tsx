@@ -352,6 +352,7 @@ const shortCourseAreaIcons: Record<string, LucideIcon> = {
   MECHATRONICS: Wrench,
   OTHER: BookOpen
 }
+const featuredShortCourseAreaOrder = ['ICT', 'ELECTRONICS', 'ELECTRICAL']
 
 function getShortCourseArea(course: CourseCatalogItem, areas: CourseCategoryContent[]) {
   const category = course.category?.trim().toUpperCase()
@@ -3215,6 +3216,12 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
         : area.topics,
       icon: shortCourseAreaIcons[area.id] ?? BookOpen
     }
+  }).sort((left, right) => {
+    const leftPriority = featuredShortCourseAreaOrder.indexOf(left.id)
+    const rightPriority = featuredShortCourseAreaOrder.indexOf(right.id)
+    if (leftPriority < 0) return rightPriority < 0 ? 0 : 1
+    if (rightPriority < 0) return -1
+    return leftPriority - rightPriority
   })
   const [searchParams, setSearchParams] = useSearchParams()
   const filterParam = searchParams.get('filter')
@@ -3468,17 +3475,17 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
           <div className="programme-explorer-heading">
             <div>
               <span className="eyebrow">{t('Choose a training area')}</span>
-              <h2 id="short-course-explorer-title">{t(selectedShortArea?.label ?? 'Short courses by area')}</h2>
+              <h2 id="short-course-explorer-title">{t(selectedShortArea?.name ?? 'All short courses')}</h2>
               <p>{t(selectedShortArea?.description ?? 'Choose an area to browse its currently listed short courses and their learning content.')}</p>
             </div>
             <span className="programme-explorer-count">
               {selectedShortArea ? shortCoursesInSelectedArea.length : shortCourses.length} {t('courses')}
             </span>
           </div>
-          <div className="programme-area-tabs short-course-area-tabs" role="group" aria-label={t('Choose a course area')}>
+          <div className="programme-group-tabs short-course-group-tabs" role="group" aria-label={t('Choose a course area')}>
             <button
               type="button"
-              className={`programme-area-tab${selectedShortAreaId === 'ALL' ? ' is-active' : ''}`}
+              className={`programme-group-tab${selectedShortAreaId === 'ALL' ? ' is-active' : ''}`}
               aria-pressed={selectedShortAreaId === 'ALL'}
               onClick={() => {
                 const nextParams = new URLSearchParams(searchParams)
@@ -3486,8 +3493,9 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
                 setSearchParams(nextParams)
               }}
             >
-              <BookOpen size={17} aria-hidden="true" />{t('All short courses')}
-              <span className="short-course-area-count">
+              <BookOpen size={20} strokeWidth={1.8} aria-hidden="true" />
+              <span>{t('All short courses')}</span>
+              <span className="programme-group-count">
                 {shortCourses.filter(matchesShortCourseFilter).length}
               </span>
             </button>
@@ -3495,7 +3503,7 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
               <button
                 key={area.id}
                 type="button"
-                className={`programme-area-tab${selectedShortArea?.id === area.id ? ' is-active' : ''}`}
+                className={`programme-group-tab${selectedShortArea?.id === area.id ? ' is-active' : ''}`}
                 aria-pressed={selectedShortArea?.id === area.id}
                 onClick={() => {
                   const nextParams = new URLSearchParams(searchParams)
@@ -3503,8 +3511,9 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
                   setSearchParams(nextParams)
                 }}
               >
-                <area.icon size={17} aria-hidden="true" />{t(area.label)}
-                <span className="short-course-area-count">
+                <area.icon size={20} strokeWidth={1.8} aria-hidden="true" />
+                <span>{t(area.name)}</span>
+                <span className="programme-group-count">
                   {shortCourses.filter((course) =>
                     getShortCourseArea(course, shortCourseAreas) === area.id && matchesShortCourseFilter(course)
                   ).length}
@@ -3512,11 +3521,6 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
               </button>
             ))}
           </div>
-          {selectedShortArea?.topics.length ? (
-            <ul className="programme-topic-list">
-              {selectedShortArea.topics.map((topic) => <li key={topic}>{t(topic)}</li>)}
-            </ul>
-          ) : null}
         </section>
       )}
       {(error || categoryError) && <p className="error-message" role="alert">{t(error || categoryError)}</p>}
