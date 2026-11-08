@@ -1067,6 +1067,7 @@ function AppShell() {
   const { data: searchPublications, error: searchPublicationsError } = useApiData<PublicationItem>('/publications')
   const { settings } = useSiteSettings()
   const siteName = settings['site.name'] ?? 'VETA Kipawa ICT Centre'
+  const mapEmbedUrl = safeHttpsUrl(settings['site.mapEmbedUrl'])
   const canonicalOrigin = resolveCanonicalOrigin(import.meta.env.VITE_SITE_URL, window.location.origin)
   const seoMetadata = useMemo(() => {
     const article = searchNews.find((item) => location.pathname === `/news/${encodeURIComponent(item.slug)}`)
@@ -1715,13 +1716,15 @@ function AppShell() {
                   <span>{siteName}</span>
                 </div>
                 <p>{settings['site.physicalAddress'] ?? ''}</p>
-                <iframe
-                  src={safeHttpsUrl(settings['site.mapEmbedUrl']) ?? ''}
-                  title={t('VETA Kipawa ICT Centre location on Google Maps')}
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  allowFullScreen
-                />
+                {mapEmbedUrl && (
+                  <iframe
+                    src={mapEmbedUrl}
+                    title={t('VETA Kipawa ICT Centre location on Google Maps')}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    allowFullScreen
+                  />
+                )}
                 <a
                   href={safeHttpsUrl(settings['site.mapUrl']) ?? '#'}
                   target="_blank"
@@ -4812,6 +4815,7 @@ function ContactPage() {
   const contactPhones = splitContactPhones(settings['site.contactPhone'] ?? '')
   const contactEmail = settings['site.contactEmail'] ?? ''
   const locationMapUrl = safeHttpsUrl(settings['site.mapUrl'])
+  const mapEmbedUrl = safeHttpsUrl(settings['site.mapEmbedUrl'])
 
   const handleCopyPhone = async (phone: string) => {
     try {
@@ -4920,13 +4924,15 @@ function ContactPage() {
             )}
           </div>
           <div className="info-card contact-map-card">
-            <iframe
-              src={safeHttpsUrl(settings['site.mapEmbedUrl']) ?? ''}
-              title={t('VETA Kipawa ICT Centre location on Google Maps')}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              allowFullScreen
-            />
+            {mapEmbedUrl && (
+              <iframe
+                src={mapEmbedUrl}
+                title={t('VETA Kipawa ICT Centre location on Google Maps')}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                allowFullScreen
+              />
+            )}
             {locationMapUrl && <a href={locationMapUrl} target="_blank" rel="noopener noreferrer"><MapPin size={17} />{t('Open directions to VETA Kipawa')}</a>}
           </div>
         </div>
