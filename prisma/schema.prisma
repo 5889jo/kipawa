@@ -101,13 +101,30 @@ model TrainingCentre {
 }
 
 model CourseCategory {
-  code      String   @id
-  name      String
-  nameSw    String?
-  sortOrder Int      @default(0)
-  courses   Course[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  code          String                @id
+  name          String
+  nameSw        String?
+  description   String                @default("") @db.Text
+  descriptionSw String?               @db.Text
+  sortOrder     Int                   @default(0)
+  courses       Course[]
+  topics        CourseCategoryTopic[]
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+}
+
+model CourseCategoryTopic {
+  id           Int            @id @default(autoincrement())
+  categoryCode String
+  category     CourseCategory @relation(fields: [categoryCode], references: [code], onDelete: Cascade)
+  title        String
+  titleSw      String?
+  sortOrder    Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([categoryCode, title])
+  @@index([categoryCode, sortOrder, id])
 }
 
 model Course {
@@ -394,6 +411,82 @@ model Partner {
   updatedAt     DateTime @updatedAt
 
   @@index([isPublished, sortOrder, id])
+}
+
+model FaqEntry {
+  id          Int      @id @default(autoincrement())
+  question    String   @unique
+  questionSw  String?
+  answer      String   @db.Text
+  answerSw    String?  @db.Text
+  sortOrder   Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isPublished, sortOrder, id])
+}
+
+model LabArea {
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique
+  name      String
+  nameSw    String?
+  sortOrder Int      @default(0)
+  labs      Lab[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder, id])
+}
+
+model Lab {
+  id               Int        @id @default(autoincrement())
+  slug             String     @unique
+  areaId           Int
+  area             LabArea    @relation(fields: [areaId], references: [id], onDelete: Restrict)
+  name             String
+  nameSw           String?
+  category         String
+  categorySw       String?
+  description      String     @db.Text
+  descriptionSw    String?    @db.Text
+  coverImageUrl    String
+  featuredImageUrl String?
+  sortOrder        Int        @default(0)
+  isPublished      Boolean    @default(true)
+  topics           LabTopic[]
+  images           LabImage[]
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@index([areaId, isPublished, sortOrder, id])
+}
+
+model LabTopic {
+  id        Int      @id @default(autoincrement())
+  labId     Int
+  lab       Lab      @relation(fields: [labId], references: [id], onDelete: Cascade)
+  title     String
+  titleSw   String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([labId, title])
+  @@index([labId, sortOrder, id])
+}
+
+model LabImage {
+  id        Int      @id @default(autoincrement())
+  labId     Int
+  lab       Lab      @relation(fields: [labId], references: [id], onDelete: Cascade)
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([labId, url])
+  @@index([labId, sortOrder, id])
 }
 
 model WebsiteDailyVisitor {

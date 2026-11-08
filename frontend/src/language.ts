@@ -164,6 +164,7 @@ const translations: Record<string, string> = Object.fromEntries([
   ["Account access", "Ufikiaji wa akaunti"],
   ["Forgot your password?", "Umesahau nenosiri lako?"],
   ["Send reset link", "Tuma kiungo cha kuweka upya"],
+  ["Password reset email is temporarily unavailable. Please contact the centre.", "Barua pepe ya kuweka upya nenosiri haipatikani kwa sasa. Tafadhali wasiliana na kituo."],
   ["If an active account uses that email address, a password reset link will be sent.", "Ikiwa akaunti inayotumika inatumia anwani hiyo ya barua pepe, kiungo cha kuweka upya nenosiri kitatumwa."],
   ["Reset your password", "Weka upya nenosiri lako"],
   ["Choose a new password for your account.", "Chagua nenosiri jipya la akaunti yako."],

@@ -196,6 +196,48 @@ type SiteStatistic = {
   label: string
 }
 
+type FaqEntry = {
+  id: string
+  question: string
+  questionSw?: string | null
+  answer: string
+  answerSw?: string | null
+}
+
+type LabRecord = {
+  id: string
+  slug: string
+  name: string
+  nameSw?: string | null
+  category: string
+  categorySw?: string | null
+  description: string
+  descriptionSw?: string | null
+  coverImageUrl: string
+  featuredImageUrl: string | null
+  images: string[]
+  topics: string[]
+  topicsSw?: string[]
+}
+
+type LabAreaRecord = {
+  id: string
+  slug: string
+  name: string
+  nameSw?: string | null
+  labs: LabRecord[]
+}
+
+type CourseCategoryContent = {
+  id: string
+  name: string
+  nameSw?: string | null
+  description: string
+  descriptionSw?: string | null
+  topics: string[]
+  topicsSw?: string[]
+}
+
 type OrganizationMember = {
   id: string
   name: string
@@ -295,45 +337,6 @@ const isShortCourseOnlyCoordinator = (user: AppUser | null) => Boolean(
 const COURSE_INTEREST_DATE_MAX = new Date().toISOString().slice(0, 10)
 const SHORT_COURSE_TICKER_SETTING_KEY = 'home.shortCoursesTicker'
 const SHORT_COURSE_TICKER_BADGE_SETTING_KEY = 'home.shortCoursesTickerBadge'
-const LAB_IMAGE_SETTING_KEY = 'labs.images'
-const LAB_IMAGE_OPTIONS = [
-  { key: 'multimedia', title: 'Multimedia Lab' },
-  { key: 'web-design', title: 'Web Design Lab' },
-  { key: 'computer-maintenance', title: 'Computer Maintenance Lab' },
-  { key: 'electronics', title: 'Electronics Labs' },
-  { key: 'electrical', title: 'Electrical Labs' },
-  { key: 'mechatronics', title: 'Mechatronics Labs' }
-] as const
-
-type LabImageSet = {
-  featured: string | null
-  related: string[]
-}
-
-function getLabImageSet(value: string | undefined, labKey: string): LabImageSet {
-  if (!value) return { featured: null, related: [] }
-  try {
-    const parsed: unknown = JSON.parse(value)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      throw new Error('Lab image settings must be an object.')
-    }
-    const labImages = Reflect.get(parsed, labKey)
-    if (typeof labImages !== 'object' || labImages === null || Array.isArray(labImages)) {
-      return { featured: null, related: [] }
-    }
-    const isLabImageUrl = (imageUrl: unknown): imageUrl is string =>
-      typeof imageUrl === 'string' && /^\/uploads\/labs\/[\w-]+\.(jpg|png|webp)$/i.test(imageUrl)
-    const featured = Reflect.get(labImages, 'featured')
-    const related = Reflect.get(labImages, 'related')
-    return {
-      featured: isLabImageUrl(featured) ? featured : null,
-      related: Array.isArray(related) ? related.filter(isLabImageUrl).slice(0, 8) : []
-    }
-  } catch (error) {
-    console.error('Unable to read lab image settings:', error)
-    return { featured: null, related: [] }
-  }
-}
 const DEFAULT_SHORT_COURSE_TICKER = 'NEW SHORT COURSES INTAKE OPENING SOON — ENROLMENT STARTS ON {startDate} — APPLY NOW!'
 const SITE_SETTINGS_CHANGED_EVENT = 'site-settings-changed'
 const SITE_VISITOR_COUNT_UPDATED_EVENT = 'site-visitor-count-updated'
@@ -342,58 +345,17 @@ const VISITOR_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]
 const SESSION_STORAGE_KEY = 'veta-session-v2'
 let csrfToken: string | null = null
 let csrfTokenRequest: Promise<string> | null = null
-const KIPAWA_MAP_URL = 'https://www.google.com/maps/place/VETA+Kipawa-+ICT+CENTER/@-6.8524503,39.2112337,17.43z/data=!4m6!3m5!1s0x185c49c47717d247:0x7216aaad4e9f7ba3!8m2!3d-6.8523213!4d39.210794!16s%2Fg%2F11b6gp5v0m'
-const KIPAWA_MAP_EMBED_URL = 'https://maps.google.com/maps?q=-6.8523213%2C39.210794&z=17&output=embed'
-const KIPAWA_PHYSICAL_ADDRESS = 'Karakata, Kipawa Ward, Ilala District, Dar es Salaam, Tanzania (near Julius Nyerere International Airport)'
-const KIPAWA_POSTAL_ADDRESS = 'P.O. Box 40040, Dar es Salaam, Tanzania'
-const KIPAWA_CONTACT_PHONE = '+255 22 284 3360 / +255 22 284 3363'
-const KIPAWA_CONTACT_EMAIL = 'kict@veta.go.tz'
-const shortCourseAreas = [
-  {
-    id: 'ICT',
-    label: 'ICT short courses',
-    name: 'ICT',
-    icon: Laptop,
-    description: 'Build practical digital skills with focused training in computing, software and information technology.',
-    topics: ['Computer applications and digital productivity', 'Networking and internet services', 'Software, web and digital tools', 'Practical ICT support and troubleshooting']
-  },
-  {
-    id: 'ELECTRICAL',
-    label: 'Electrical short courses',
-    name: 'Electrical',
-    icon: Zap,
-    description: 'Develop focused electrical skills through practical instruction in safe installation, testing and maintenance.',
-    topics: ['Electrical safety and tools', 'Wiring and installation practice', 'Circuit testing and measurements', 'Fault-finding and maintenance']
-  },
-  {
-    id: 'ELECTRONICS',
-    label: 'Electronics short courses',
-    name: 'Electronics',
-    icon: Cpu,
-    description: 'Learn practical electronics through guided work with components, circuits and test equipment.',
-    topics: ['Electronic components and circuits', 'Measurement and testing instruments', 'Assembly and soldering practice', 'Safe troubleshooting and equipment care']
-  },
-  {
-    id: 'MECHATRONICS',
-    label: 'Mechatronics short courses',
-    name: 'Mechatronics',
-    icon: Wrench,
-    description: 'Explore practical skills combining mechanical systems, electrical components and basic automation.',
-    topics: ['Mechanical systems and workshop practice', 'Motors, actuators and electrical components', 'Sensors and introductory controls', 'Basic automation and maintenance']
-  },
-  {
-    id: 'OTHER',
-    label: 'Other short courses',
-    name: 'Other short courses',
-    icon: BookOpen,
-    description: 'Browse focused short-course training in additional practical and vocational areas.',
-    topics: ['Course-specific practical skills', 'Guided hands-on activities', 'Workplace methods and safe practice', 'Applied exercises based on the course topic']
-  }
-] as const
+const shortCourseAreaIcons: Record<string, LucideIcon> = {
+  ICT: Laptop,
+  ELECTRICAL: Zap,
+  ELECTRONICS: Cpu,
+  MECHATRONICS: Wrench,
+  OTHER: BookOpen
+}
 
-function getShortCourseArea(course: CourseCatalogItem) {
+function getShortCourseArea(course: CourseCatalogItem, areas: CourseCategoryContent[]) {
   const category = course.category?.trim().toUpperCase()
-  if (category && shortCourseAreas.some((area) => area.id === category)) return category
+  if (category && areas.some((area) => area.id === category)) return category
   return 'OTHER'
 }
 
@@ -984,24 +946,8 @@ function Breadcrumbs({ pathname, news, courses, session }: {
 
 function FaqPage() {
   const t = useTranslate()
-  const questions = [
-    {
-      question: 'How do I find a course?',
-      answer: 'Browse the courses page or use the website search to look up a programme.'
-    },
-    {
-      question: 'How do I request a course booking?',
-      answer: 'Short courses: create or sign in to a learner account, open an announced course, and submit a request. The centre will call to confirm your phone number. Wait for the centre to issue an official control number before paying the TSh 5,000 application form fee. Upload the payment screenshot in your dashboard; after staff verify it, complete the application there. A request is not a confirmed place. Long courses and diploma programmes: apply through VET-MIS; the centre website does not submit that application.'
-    },
-    {
-      question: 'How can I contact the centre?',
-      answer: 'Use the contact form on the Contact Us page. Published phone, email, address, and map details appear there when configured.'
-    },
-    {
-      question: 'Where can I find publications and news?',
-      answer: 'Open Publications for downloadable resources and News for announcements and updates.'
-    }
-  ]
+  const { language } = useLanguage()
+  const { data: questions, error, loading } = useApiData<FaqEntry>('/faqs')
 
   return (
     <section className="content-page">
@@ -1010,12 +956,18 @@ function FaqPage() {
         <h1>{t('Answers to common questions about courses and training.')}</h1>
       </header>
       <div className="faq-list">
-        {questions.map(({ question, answer }) => (
-          <details className="faq-item" key={question}>
-            <summary>{t(question)}</summary>
-            <p>{t(answer)}</p>
+        {loading && <p role="status">{t('Loading frequently asked questions…')}</p>}
+        {error && <p className="error-message" role="alert">{t(error)}</p>}
+        {!loading && !error && questions.map((entry) => {
+          const faq = localizeContentRecord(entry, language)
+          return (
+          <details className="faq-item" key={entry.id}>
+            <summary>{t(faq.question)}</summary>
+            <p>{t(faq.answer)}</p>
           </details>
-        ))}
+          )
+        })}
+        {!loading && !error && questions.length === 0 && <p>{t('No frequently asked questions have been published yet.')}</p>}
       </div>
       <p className="faq-contact-link">{t('Still need help?')} <Link to="/contact">{t('Contact us')}</Link></p>
     </section>
@@ -1130,6 +1082,60 @@ function AppShell() {
       course: localizedCourse ? { title: localizedCourse.name, description: localizedCourse.summary } : undefined
     })
   }, [canonicalOrigin, language, location.pathname, searchCourses, searchNews, siteName])
+
+  useEffect(() => {
+    const targetSelector = [
+      '.primary-button',
+      '.secondary-button',
+      '.outline-button',
+      '.destructive-button',
+      'button[type="submit"]',
+      'input[type="submit"]'
+    ].join(', ')
+
+    const buttonHandlers = new Map<HTMLElement, { handlePointerDown: (event: Event) => void, handleClick: () => void }>()
+    const buttons = Array.from(document.querySelectorAll<HTMLElement>(targetSelector)).filter((button) => {
+      return !button.closest('.topbar') && !button.closest('.header-search-button') && !button.closest('.nav-group-trigger')
+    })
+
+    buttons.forEach((button) => {
+      const handlePointerDown = (event: Event) => {
+        const ripple = document.createElement('span')
+        ripple.className = 'button-ripple'
+        const rect = button.getBoundingClientRect()
+        const pointer = event as PointerEvent
+        const x = 'clientX' in pointer ? pointer.clientX - rect.left : rect.width / 2
+        const y = 'clientY' in pointer ? pointer.clientY - rect.top : rect.height / 2
+        ripple.style.left = `${x}px`
+        ripple.style.top = `${y}px`
+        button.appendChild(ripple)
+        ripple.addEventListener('animationend', () => ripple.remove(), { once: true })
+      }
+
+      const handleClick = () => {
+        if (button.matches('button[type="submit"], input[type="submit"]')) {
+          button.classList.remove('is-success')
+          button.classList.add('is-loading')
+          window.setTimeout(() => {
+            button.classList.remove('is-loading')
+            button.classList.add('is-success')
+            window.setTimeout(() => button.classList.remove('is-success'), 1400)
+          }, 420)
+        }
+      }
+
+      button.addEventListener('pointerdown', handlePointerDown)
+      button.addEventListener('click', handleClick)
+      buttonHandlers.set(button, { handlePointerDown, handleClick })
+    })
+
+    return () => {
+      buttonHandlers.forEach(({ handlePointerDown, handleClick }, button) => {
+        button.removeEventListener('pointerdown', handlePointerDown)
+        button.removeEventListener('click', handleClick)
+      })
+    }
+  }, [location.pathname])
 
   useEffect(() => {
     applySeoMetadata(seoMetadata, canonicalOrigin)
@@ -1393,15 +1399,15 @@ function AppShell() {
               <span>{t('Kipawa, Dar es Salaam')}</span>
             </span>
             <div className="header-utility-contacts">
-              {splitContactPhones(settings['site.contactPhone'] ?? KIPAWA_CONTACT_PHONE).slice(0, 1).map((phone) => (
+              {splitContactPhones(settings['site.contactPhone'] ?? '').slice(0, 1).map((phone) => (
                 <a key={phone} href={`tel:${phone.replace(/[^\d+]/g, '')}`}>
                   <Phone size={13} aria-hidden="true" />
                   <span>{phone}</span>
                 </a>
               ))}
-              <a href={`mailto:${settings['site.contactEmail'] ?? KIPAWA_CONTACT_EMAIL}`}>
+              <a href={`mailto:${settings['site.contactEmail'] ?? ''}`}>
                 <Mail size={13} aria-hidden="true" />
-                <span>{settings['site.contactEmail'] ?? KIPAWA_CONTACT_EMAIL}</span>
+                <span>{settings['site.contactEmail'] ?? ''}</span>
               </a>
             </div>
           </div>
@@ -1584,8 +1590,8 @@ function AppShell() {
         {authError && <p className="error-message" role="alert">{t(authError)}</p>}
         <Routes>
           <Route path="/" element={<HomePage session={session} isInitialLoad={!hasHomePageLoaded} onInitialLoadComplete={completeInitialHomeLoad} />} />
-          <Route path="/about" element={<AboutPage siteSettings={settings} />} />
-          <Route path="/labs" element={<AboutPage siteSettings={settings} />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/labs" element={<AboutPage />} />
           <Route path="/centres" element={<Navigate to="/labs" replace />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/courses" element={<Navigate to="/long-courses" replace />} />
@@ -1661,22 +1667,22 @@ function AppShell() {
             <ul className="footer-list contact-list">
               <li>
                 <MapPin size={15} />
-                <span>{settings['site.physicalAddress'] ?? KIPAWA_PHYSICAL_ADDRESS}</span>
+                <span>{settings['site.physicalAddress'] ?? ''}</span>
               </li>
               <li>
                 <MapPin size={15} />
-                <span>{settings['site.postalAddress'] ?? KIPAWA_POSTAL_ADDRESS}</span>
+                <span>{settings['site.postalAddress'] ?? ''}</span>
               </li>
               <li>
                 <Phone size={15} />
-                <span>{splitContactPhones(settings['site.contactPhone'] ?? KIPAWA_CONTACT_PHONE).map((phone, index) => (
+                <span>{splitContactPhones(settings['site.contactPhone'] ?? '').map((phone, index) => (
                   <span key={phone}>{index > 0 && ' / '}<a href={`tel:${phone.replace(/[^\d+]/g, '')}`}>{phone}</a></span>
                 ))}</span>
               </li>
               <li>
                 <Mail size={15} />
-                <a href={`mailto:${settings['site.contactEmail'] ?? KIPAWA_CONTACT_EMAIL}`}>
-                  {settings['site.contactEmail'] ?? KIPAWA_CONTACT_EMAIL}
+                <a href={`mailto:${settings['site.contactEmail'] ?? ''}`}>
+                  {settings['site.contactEmail'] ?? ''}
                 </a>
               </li>
             </ul>
@@ -1708,16 +1714,16 @@ function AppShell() {
                   <MapPin size={16} />
                   <span>{siteName}</span>
                 </div>
-                <p>{settings['site.physicalAddress'] ?? KIPAWA_PHYSICAL_ADDRESS}</p>
+                <p>{settings['site.physicalAddress'] ?? ''}</p>
                 <iframe
-                  src={KIPAWA_MAP_EMBED_URL}
+                  src={safeHttpsUrl(settings['site.mapEmbedUrl']) ?? ''}
                   title={t('VETA Kipawa ICT Centre location on Google Maps')}
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
                   allowFullScreen
                 />
                 <a
-                  href={safeHttpsUrl(settings['site.mapUrl']) ?? KIPAWA_MAP_URL}
+                  href={safeHttpsUrl(settings['site.mapUrl']) ?? '#'}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -2581,11 +2587,12 @@ function TeamHierarchy({ members }: { members: OrganizationMember[] }) {
   )
 }
 
-function AboutPage({ siteSettings }: { siteSettings: Record<string, string> }) {
+function AboutPage() {
   const t = useTranslate()
   const { language } = useLanguage()
   const location = useLocation()
   const navigate = useNavigate()
+  const { data: labAreaRecords, error: labsError, loading: labsLoading } = useApiData<LabAreaRecord>('/labs')
   const { data: organizationMembers, error: organizationError, loading: organizationLoading } = useApiData<OrganizationMember>('/organization')
   const { data: partners, error: partnersError, loading: partnersLoading } = useApiData<PartnerProfile>('/partners')
   const [activeLab, setActiveLab] = useState(0)
@@ -2603,72 +2610,53 @@ function AboutPage({ siteSettings }: { siteSettings: Record<string, string> }) {
     image: string
     description: string
     topics: string[]
+    featuredImageUrl: string | null
+    relatedImages: string[]
   }
   type LabCategory = Pick<LabExperience, 'title' | 'category'> & (
     | { subLabs: LabExperience[] }
     | Omit<LabExperience, 'title' | 'category'>
   )
-  const labs: LabCategory[] = [
-    {
-      title: 'ICT and Computer Labs',
-      category: 'Digital skills',
-      subLabs: [
-        {
-          key: 'multimedia',
-          title: 'Multimedia Lab',
-          category: 'Digital media and creativity',
-          image: coursePhotoUrl('multimedia video production', 0, 1200),
-          description: 'Create and refine digital media through practical work with visual design, image editing, audio and video.',
-          topics: ['Graphics and visual communication', 'Audio and video production fundamentals', 'Editing and preparing digital media projects']
-        },
-        {
-          key: 'web-design',
-          title: 'Web Design Lab',
-          category: 'Web and digital experiences',
-          image: coursePhotoUrl('web design website', 1, 1200),
-          description: 'Plan and build accessible, responsive websites while learning how design and technology work together.',
-          topics: ['Web page structure and styling', 'Responsive design and usability', 'Building and publishing a small website']
-        },
-        {
-          key: 'computer-maintenance',
-          title: 'Computer Maintenance Lab',
-          category: 'Computer hardware and support',
-          image: coursePhotoUrl('computer maintenance hardware repair', 2, 1200),
-          description: 'Learn how to care for computer equipment, identify common faults and carry out basic maintenance safely.',
-          topics: ['Computer components and safe handling', 'Basic diagnosis and troubleshooting', 'Preventive maintenance and user support']
-        }
-      ]
-    },
-    {
-      title: 'Electronics Labs',
-      category: 'Electronics',
-      key: 'electronics',
-      image: '/labs/electronics lab.jpg',
-      description: 'Understand how electronic systems work by learning about components, circuits, and technical troubleshooting.',
-      topics: ['Electronic components and circuits', 'Measurement and testing techniques', 'Fault-finding and repair principles']
-    },
-    {
-      title: 'Electrical Labs',
-      category: 'Electrical technology',
-      key: 'electrical',
-      image: coursePhotoUrl('electrical installation wiring', 0, 1200),
-      description: 'Explore electrical systems through practical learning focused on safe installation, maintenance, and automation.',
-      topics: ['Electrical safety and tools', 'Wiring and installation practice', 'Circuit testing and measurements', 'Fault-finding and maintenance']
-    },
-    {
-      title: 'Mechatronics Labs',
-      category: 'Integrated technology',
-      key: 'mechatronics',
-      image: coursePhotoUrl('mechatronics robotics', 1, 1200),
-      description: 'Discover how mechanical, electrical, electronic, and control technologies work together in modern systems.',
-      topics: ['Electromechanical systems', 'Sensors and control fundamentals', 'Automation and applied problem-solving']
+  const labs: LabCategory[] = labAreaRecords.map((area) => {
+    const localizedArea = localizeContentRecord(area, language)
+    const experiences = area.labs.map((lab) => {
+      const localizedLab = localizeContentRecord(lab, language)
+      return {
+        key: lab.slug,
+        title: localizedLab.name,
+        category: localizedLab.category,
+        image: localizedLab.coverImageUrl,
+        description: localizedLab.description,
+        topics: language === 'sw'
+          ? lab.topics.map((topic, index) => lab.topicsSw?.[index] || topic)
+          : lab.topics,
+        featuredImageUrl: lab.featuredImageUrl,
+        relatedImages: lab.images
+      }
+    })
+    if (experiences.length > 1) {
+      return { title: localizedArea.name, category: localizedArea.name, subLabs: experiences }
     }
-  ]
-  const selectedLab = labs[activeLab]
+    const experience = experiences[0]
+    return experience
+      ? { ...experience, title: localizedArea.name }
+      : { title: localizedArea.name, category: localizedArea.name, key: area.slug, image: '', description: '', topics: [], featuredImageUrl: null, relatedImages: [] }
+  })
+  const emptyExperience: LabExperience = {
+    key: '',
+    title: '',
+    category: '',
+    image: '',
+    description: '',
+    topics: [],
+    featuredImageUrl: null,
+    relatedImages: []
+  }
+  const selectedLab = labs[activeLab] ?? { title: '', category: '', subLabs: [emptyExperience] }
   const selectedExperience = 'subLabs' in selectedLab
-    ? selectedLab.subLabs[activeIctLab]
+    ? selectedLab.subLabs[activeIctLab] ?? emptyExperience
     : selectedLab
-  const selectedLabImages = getLabImageSet(siteSettings[LAB_IMAGE_SETTING_KEY], selectedExperience.key)
+  const selectedLabImages = { featured: selectedExperience.featuredImageUrl, related: selectedExperience.relatedImages }
   const selectedFeaturedImage = selectedLabImages.featured ?? selectedExperience.image
   const featuredImageUrl = selectedFeaturedImage.startsWith('/uploads/') ? getMediaUrl(selectedFeaturedImage) : selectedFeaturedImage
   const labGalleryImages = selectedLabImages.related.map(getMediaUrl)
@@ -2826,6 +2814,9 @@ function AboutPage({ siteSettings }: { siteSettings: Record<string, string> }) {
               <p>{t('Choose a learning area to explore the practical skills and study themes connected with VETA Kipawa programmes.')}</p>
             </div>
           </div>
+          {labsLoading && <p className="about-organization-status" role="status">{t('Loading lab information…')}</p>}
+          {labsError && <p className="error-message" role="alert">{t(labsError)}</p>}
+          {!labsLoading && !labsError && labs.length === 0 && <p>{t('No lab information has been published yet.')}</p>}
           <div className="about-labs-category-list" role="group" aria-label={t('Choose a lab category')}>
             {labs.map((lab, index) => (
               <button
@@ -2865,7 +2856,7 @@ function AboutPage({ siteSettings }: { siteSettings: Record<string, string> }) {
               ))}
             </div>
           )}
-          <article id="about-lab-panel" className="about-lab-feature" aria-labelledby="about-lab-title" aria-live="polite">
+          {selectedExperience.key && <article id="about-lab-panel" className="about-lab-feature" aria-labelledby="about-lab-title" aria-live="polite">
             <figure className="about-lab-image">
               <img src={featuredImageUrl} alt={t(`${selectedExperience.title} learning space`)} loading="lazy" decoding="async" />
             </figure>
@@ -2878,7 +2869,7 @@ function AboutPage({ siteSettings }: { siteSettings: Record<string, string> }) {
                 {selectedExperience.topics.map((topic) => <li key={topic}><Check size={16} aria-hidden="true" />{t(topic)}</li>)}
               </ul>
             </div>
-          </article>
+          </article>}
           {selectedLabImages.related.length > 0 && (
             <div className="about-lab-related" aria-label={t('Related lab images')}>
               <h4>{t('Related images')}</h4>
@@ -3204,6 +3195,24 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
   const { data: courses, error } = useApiData<CourseCatalogItem>(
     isShortCoursePage ? '/courses?includeAllShortCourses=true' : '/courses'
   )
+  const { data: courseCategories, error: categoryError } = useApiData<CourseCategoryContent>('/course-categories')
+  const shortCourseAreas = courseCategories.map((area) => {
+    const localizedArea = localizeContentRecord(area, language)
+    const englishLabel = `${area.name} short courses`
+    const translatedLabel = t(englishLabel)
+    return {
+      ...localizedArea,
+      label: language === 'sw' && area.nameSw
+        ? translatedLabel !== englishLabel
+          ? translatedLabel
+          : `${area.nameSw} · ${t('Short courses')}`
+        : englishLabel,
+      topics: language === 'sw'
+        ? area.topics.map((topic, index) => area.topicsSw?.[index] || topic)
+        : area.topics,
+      icon: shortCourseAreaIcons[area.id] ?? BookOpen
+    }
+  })
   const [searchParams, setSearchParams] = useSearchParams()
   const filterParam = searchParams.get('filter')
   const courseFilter = filterParam === 'upcoming' || filterParam === 'ongoing' || filterParam === 'short' || filterParam === 'all'
@@ -3222,9 +3231,10 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
   const isOngoing = (course: CourseCatalogItem) => Boolean(course.startDate &&
     getTanzaniaDateKey(new Date(course.startDate)) <= today &&
     (!course.endDate || getTanzaniaDateKey(new Date(course.endDate)) >= today))
-  const selectedShortArea = shortCourseAreas.find((area) => area.id === selectedShortAreaId) ?? null
+  const selectedShortAreaRecord = shortCourseAreas.find((area) => area.id === selectedShortAreaId) ?? null
+  const selectedShortArea = selectedShortAreaRecord ?? null
   const shortCoursesInSelectedArea = selectedShortArea
-    ? shortCourses.filter((course) => getShortCourseArea(course) === selectedShortArea.id)
+    ? shortCourses.filter((course) => getShortCourseArea(course, shortCourseAreas) === selectedShortArea.id)
     : shortCourses
   const matchesShortCourseFilter = (course: CourseCatalogItem) =>
     courseFilter === 'upcoming' ? isUpcoming(course) :
@@ -3493,15 +3503,20 @@ function CoursesPage({ courseType, session }: { courseType: 'Long Course' | 'Sho
                 <area.icon size={17} aria-hidden="true" />{t(area.label)}
                 <span className="short-course-area-count">
                   {shortCourses.filter((course) =>
-                    getShortCourseArea(course) === area.id && matchesShortCourseFilter(course)
+                    getShortCourseArea(course, shortCourseAreas) === area.id && matchesShortCourseFilter(course)
                   ).length}
                 </span>
               </button>
             ))}
           </div>
+          {selectedShortArea?.topics.length ? (
+            <ul className="programme-topic-list">
+              {selectedShortArea.topics.map((topic) => <li key={topic}>{t(topic)}</li>)}
+            </ul>
+          ) : null}
         </section>
       )}
-      {error && <p className="error-message" role="alert">{t(error)}</p>}
+      {(error || categoryError) && <p className="error-message" role="alert">{t(error || categoryError)}</p>}
       {isShortCoursePage && (
         <>
           <div className="course-toolbar">
@@ -4792,11 +4807,11 @@ function ContactPage() {
   const [copiedPhone, setCopiedPhone] = useState('')
   const [copyError, setCopyError] = useState('')
   const { settings } = useSiteSettings()
-  const physicalAddress = settings['site.physicalAddress'] ?? KIPAWA_PHYSICAL_ADDRESS
-  const postalAddress = settings['site.postalAddress'] ?? KIPAWA_POSTAL_ADDRESS
-  const contactPhones = splitContactPhones(settings['site.contactPhone'] ?? KIPAWA_CONTACT_PHONE)
-  const contactEmail = settings['site.contactEmail'] ?? KIPAWA_CONTACT_EMAIL
-  const locationMapUrl = safeHttpsUrl(settings['site.mapUrl']) ?? KIPAWA_MAP_URL
+  const physicalAddress = settings['site.physicalAddress'] ?? ''
+  const postalAddress = settings['site.postalAddress'] ?? ''
+  const contactPhones = splitContactPhones(settings['site.contactPhone'] ?? '')
+  const contactEmail = settings['site.contactEmail'] ?? ''
+  const locationMapUrl = safeHttpsUrl(settings['site.mapUrl'])
 
   const handleCopyPhone = async (phone: string) => {
     try {
@@ -4899,20 +4914,20 @@ function ContactPage() {
                   <h3>{t('Our address')}</h3>
                   {physicalAddress && <p><strong>{t('Physical address')}:</strong> {physicalAddress}</p>}
                   {postalAddress && <p><strong>{t('Postal address')}:</strong> {postalAddress}</p>}
-                  {locationMapUrl && <a className="contact-directions-link" href={locationMapUrl} target="_blank" rel="noopener noreferrer"><MapPin size={16} />{t('View location map')}</a>}
+                  {locationMapUrl && <a className="contact-directions-link"                   href={locationMapUrl ?? '#'} target="_blank" rel="noopener noreferrer"><MapPin size={16} />{t('View location map')}</a>}
                 </div>
               </section>
             )}
           </div>
           <div className="info-card contact-map-card">
             <iframe
-              src={KIPAWA_MAP_EMBED_URL}
+              src={safeHttpsUrl(settings['site.mapEmbedUrl']) ?? ''}
               title={t('VETA Kipawa ICT Centre location on Google Maps')}
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
               allowFullScreen
             />
-            <a href={locationMapUrl} target="_blank" rel="noopener noreferrer"><MapPin size={17} />{t('Open directions to VETA Kipawa')}</a>
+            {locationMapUrl && <a href={locationMapUrl} target="_blank" rel="noopener noreferrer"><MapPin size={17} />{t('Open directions to VETA Kipawa')}</a>}
           </div>
         </div>
         <form className="application-form contact-message-form" onSubmit={handleSubmit}>
@@ -5140,7 +5155,7 @@ function AuthDialog({
     try {
       if (mode === 'forgot') {
         await postJson('/auth/forgot-password', { email })
-        setResetNotice(t('If an active account uses that email address, a password reset link will be sent.'))
+        setResetNotice(t('Password reset email is temporarily unavailable. Please contact the centre.'))
         return
       }
       const response = await postJson<{ user: AppUser }>(
@@ -6081,6 +6096,33 @@ type AdminPartner = PartnerProfile & {
   isPublished: boolean
 }
 
+type AdminFaqEntry = FaqEntry & {
+  questionSw: string
+  answerSw: string
+  sortOrder: number
+  isPublished: boolean
+}
+
+type AdminLab = Omit<LabRecord, 'topics'> & {
+  nameSw: string
+  categorySw: string
+  descriptionSw: string
+  topics: Array<{ title: string; titleSw: string }>
+  sortOrder: number
+  isPublished: boolean
+}
+
+type AdminLabArea = Omit<LabAreaRecord, 'labs'> & {
+  nameSw: string
+  labs: AdminLab[]
+}
+
+type AdminCourseCategory = Omit<CourseCategoryContent, 'topics'> & {
+  nameSw: string
+  descriptionSw: string
+  topics: Array<{ title: string; titleSw: string }>
+}
+
 type CourseInterestWorkflowStatus =
   | 'new'
   | 'contacted'
@@ -6102,6 +6144,9 @@ type AdminManagementData = {
   roles: AdminRoleRecord[]
   courses: AdminCourseRecord[]
   courseCategories: string[]
+  courseCategoryContent: AdminCourseCategory[]
+  faqEntries: AdminFaqEntry[]
+  labAreas: AdminLabArea[]
   publicationCourses: Array<{ id: string; name: string; nameSw: string }>
   news: AdminNewsRecord[]
   publications: AdminPublicationRecord[]
@@ -6281,9 +6326,9 @@ function ShortCourseTickerBadgeManager({ badgeUrl, onSaved }: { badgeUrl: string
   )
 }
 
-function LabImageManager({ settingValue, onSaved }: { settingValue: string | undefined; onSaved: () => Promise<void> }) {
+function LabImageManager({ areas, onSaved }: { areas: AdminLabArea[]; onSaved: () => Promise<void> }) {
   const t = useTranslate()
-  const [selectedLabKey, setSelectedLabKey] = useState<(typeof LAB_IMAGE_OPTIONS)[number]['key']>(LAB_IMAGE_OPTIONS[0].key)
+  const [selectedLabKey, setSelectedLabKey] = useState(() => areas[0]?.labs[0]?.slug ?? '')
   const [featuredFile, setFeaturedFile] = useState<File | null>(null)
   const [relatedFiles, setRelatedFiles] = useState<File[]>([])
   const [removedRelated, setRemovedRelated] = useState<string[]>([])
@@ -6291,10 +6336,19 @@ function LabImageManager({ settingValue, onSaved }: { settingValue: string | und
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const currentImages = getLabImageSet(settingValue, selectedLabKey)
+  const availableLabs = areas.flatMap((area) => area.labs.map((lab) => ({
+    slug: lab.slug,
+    title: `${area.name} · ${lab.name}`,
+    lab
+  })))
+  const selectedLab = availableLabs.find((item) => item.slug === selectedLabKey)?.lab
+  const currentImages = {
+    featured: selectedLab?.featuredImageUrl ?? null,
+    related: selectedLab?.images ?? []
+  }
   const visibleRelatedImages = currentImages.related.filter((imageUrl) => !removedRelated.includes(imageUrl))
 
-  const changeLab = (labKey: (typeof LAB_IMAGE_OPTIONS)[number]['key']) => {
+  const changeLab = (labKey: string) => {
     setSelectedLabKey(labKey)
     setFeaturedFile(null)
     setRelatedFiles([])
@@ -6306,6 +6360,10 @@ function LabImageManager({ settingValue, onSaved }: { settingValue: string | und
 
   const saveLabImages = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!selectedLab) {
+      setError('Choose a lab before uploading images.')
+      return
+    }
     setSaving(true)
     setError('')
     setNotice('')
@@ -6321,7 +6379,6 @@ function LabImageManager({ settingValue, onSaved }: { settingValue: string | und
       setRelatedFiles([])
       setRemovedRelated([])
       setClearFeatured(false)
-      window.dispatchEvent(new Event(SITE_SETTINGS_CHANGED_EVENT))
       await onSaved()
       setNotice('Lab images saved.')
     } catch (requestError) {
@@ -6344,11 +6401,10 @@ function LabImageManager({ settingValue, onSaved }: { settingValue: string | und
           <select
             value={selectedLabKey}
             onChange={(event) => {
-              const selectedLab = LAB_IMAGE_OPTIONS.find((lab) => lab.key === event.target.value)
-              if (selectedLab) changeLab(selectedLab.key)
+              changeLab(event.target.value)
             }}
           >
-            {LAB_IMAGE_OPTIONS.map((lab) => <option key={lab.key} value={lab.key}>{t(lab.title)}</option>)}
+            {availableLabs.map((item) => <option key={item.slug} value={item.slug}>{item.title}</option>)}
           </select>
         </label>
         <div className="lab-image-admin-featured">
@@ -6844,11 +6900,21 @@ function AdminManagement({
     key !== 'home.advertisement' &&
     key !== SHORT_COURSE_TICKER_SETTING_KEY &&
     key !== SHORT_COURSE_TICKER_BADGE_SETTING_KEY &&
-    key !== LAB_IMAGE_SETTING_KEY &&
     key !== 'home.statsStaff' &&
     key !== 'home.statsStudents' &&
     !['home.statsUndergraduate', 'home.statsPostgraduate', 'home.statsEmployees', 'home.statsProgrammes'].includes(key)
   )
+  const topicPayload = (form: FormData) => {
+    const titles = String(form.get('topics') ?? '').split(/\r?\n/).map((topic) => topic.trim())
+    const translations = String(form.get('topicsSw') ?? '').split(/\r?\n/).map((topic) => topic.trim())
+    return titles.reduce<{ topics: string[]; topicsSw: string[] }>((result, title, index) => {
+      if (title) {
+        result.topics.push(title)
+        result.topicsSw.push(translations[index] ?? '')
+      }
+      return result
+    }, { topics: [], topicsSw: [] })
+  }
   const organizationFields = (member?: AdminOrganizationMember) => (
     <>
       <div className="organization-admin-field-grid">
@@ -7685,8 +7751,151 @@ function AdminManagement({
 
       {section === 'Site settings' && (
         <>
-          <LabImageManager settingValue={data.settings[LAB_IMAGE_SETTING_KEY]} onSaved={loadData} />
+          <LabImageManager areas={data.labAreas} onSaved={loadData} />
           <ShortCourseTickerBadgeManager badgeUrl={data.settings[SHORT_COURSE_TICKER_BADGE_SETTING_KEY]} onSaved={loadData} />
+          <section className="organization-admin">
+            <h3>{t('Course area content')}</h3>
+            <p>{t('Update the short-course area descriptions and topic lists shown on the public course pages.')}</p>
+            {data.courseCategoryContent.map((category) => (
+              <form
+                key={category.id}
+                className="application-form organization-admin-form"
+                onSubmit={(event) => void saveForm(event, 'PATCH', `/admin/course-categories/${encodeURIComponent(category.id)}`, (form) => ({
+                  name: form.get('name'),
+                  nameSw: form.get('nameSw'),
+                  description: form.get('description'),
+                  descriptionSw: form.get('descriptionSw'),
+                  ...topicPayload(form)
+                }))}
+              >
+                <h4>{category.id}</h4>
+                <label>{t('Area name')}<input name="name" defaultValue={category.name} maxLength={100} required /></label>
+                <label>{t('Area name (Kiswahili)')}<input name="nameSw" defaultValue={category.nameSw} maxLength={100} /></label>
+                <label>{t('Description')}<textarea name="description" rows={3} defaultValue={category.description} maxLength={2000} required /></label>
+                <label>{t('Description (Kiswahili)')}<textarea name="descriptionSw" rows={3} defaultValue={category.descriptionSw} maxLength={2000} /></label>
+                <label>{t('Topics (one per line)')}<textarea name="topics" rows={5} defaultValue={category.topics.map((topic) => topic.title).join('\n')} /></label>
+                <label>{t('Topics (Kiswahili, matching line order)')}<textarea name="topicsSw" rows={5} defaultValue={category.topics.map((topic) => topic.titleSw).join('\n')} /></label>
+                <button className="primary-button" type="submit"><Save size={16} aria-hidden="true" />{t('Save course area')}</button>
+              </form>
+            ))}
+          </section>
+          <section className="organization-admin">
+            <h3>{t('Lab descriptions and topics')}</h3>
+            <p>{t('Edit the lab profiles and ordered learning themes shown on the About and Labs pages.')}</p>
+            <form
+              className="application-form organization-admin-form"
+              onSubmit={(event) => void saveForm(event, 'POST', '/admin/labs', (form) => ({
+                slug: form.get('slug'),
+                areaId: Number(form.get('areaId')),
+                name: form.get('name'),
+                nameSw: form.get('nameSw'),
+                category: form.get('category'),
+                categorySw: form.get('categorySw'),
+                description: form.get('description'),
+                descriptionSw: form.get('descriptionSw'),
+                coverImageUrl: form.get('coverImageUrl'),
+                sortOrder: Number(form.get('sortOrder')),
+                isPublished: form.get('isPublished') === 'on',
+                ...topicPayload(form)
+              }))}
+            >
+              <h4>{t('Add lab profile')}</h4>
+              <label>{t('URL slug')}<input name="slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={100} required /></label>
+              <label>{t('Lab area')}<select name="areaId" required>{data.labAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+              <label>{t('Name')}<input name="name" maxLength={160} required /></label>
+              <label>{t('Name (Kiswahili)')}<input name="nameSw" maxLength={160} /></label>
+              <label>{t('Category')}<input name="category" maxLength={160} required /></label>
+              <label>{t('Category (Kiswahili)')}<input name="categorySw" maxLength={160} /></label>
+              <label>{t('Description')}<textarea name="description" rows={3} maxLength={5000} required /></label>
+              <label>{t('Description (Kiswahili)')}<textarea name="descriptionSw" rows={3} maxLength={5000} /></label>
+              <label>{t('Cover image URL')}<input name="coverImageUrl" type="url" required /></label>
+              <label>{t('Topics (one per line)')}<textarea name="topics" rows={4} /></label>
+              <label>{t('Topics (Kiswahili, matching line order)')}<textarea name="topicsSw" rows={4} /></label>
+              <label>{t('Display order')}<input name="sortOrder" type="number" min="0" step="1" defaultValue="0" required /></label>
+              <label><input name="isPublished" type="checkbox" defaultChecked />{t('Published')}</label>
+              <button className="primary-button" type="submit"><Plus size={16} aria-hidden="true" />{t('Add lab')}</button>
+            </form>
+            {data.labAreas.flatMap((area) => area.labs.map((lab) => (
+              <form
+                key={lab.id}
+                className="application-form organization-admin-form"
+                onSubmit={(event) => void saveForm(event, 'PATCH', `/admin/labs/${lab.id}`, (form) => ({
+                  name: form.get('name'),
+                  nameSw: form.get('nameSw'),
+                  category: form.get('category'),
+                  categorySw: form.get('categorySw'),
+                  description: form.get('description'),
+                  descriptionSw: form.get('descriptionSw'),
+                  coverImageUrl: form.get('coverImageUrl'),
+                  sortOrder: Number(form.get('sortOrder')),
+                  isPublished: form.get('isPublished') === 'on',
+                  ...topicPayload(form)
+                }))}
+              >
+                <h4>{area.name} · {lab.name}</h4>
+                <label>{t('Name')}<input name="name" defaultValue={lab.name} maxLength={160} required /></label>
+                <label>{t('Name (Kiswahili)')}<input name="nameSw" defaultValue={lab.nameSw} maxLength={160} /></label>
+                <label>{t('Category')}<input name="category" defaultValue={lab.category} maxLength={160} required /></label>
+                <label>{t('Category (Kiswahili)')}<input name="categorySw" defaultValue={lab.categorySw} maxLength={160} /></label>
+                <label>{t('Description')}<textarea name="description" rows={3} defaultValue={lab.description} maxLength={5000} required /></label>
+                <label>{t('Description (Kiswahili)')}<textarea name="descriptionSw" rows={3} defaultValue={lab.descriptionSw} maxLength={5000} /></label>
+                <label>{t('Cover image URL')}<input name="coverImageUrl" type="url" defaultValue={lab.coverImageUrl} required /></label>
+                <label>{t('Topics (one per line)')}<textarea name="topics" rows={4} defaultValue={lab.topics.map((topic) => topic.title).join('\n')} /></label>
+                <label>{t('Topics (Kiswahili, matching line order)')}<textarea name="topicsSw" rows={4} defaultValue={lab.topics.map((topic) => topic.titleSw).join('\n')} /></label>
+                <label>{t('Display order')}<input name="sortOrder" type="number" min="0" step="1" defaultValue={lab.sortOrder} required /></label>
+                <label><input name="isPublished" type="checkbox" defaultChecked={lab.isPublished} />{t('Published')}</label>
+                <button className="primary-button" type="submit"><Save size={16} aria-hidden="true" />{t('Save lab')}</button>
+              </form>
+            )))}
+          </section>
+          <section className="organization-admin">
+            <h3>{t('Frequently asked questions')}</h3>
+            <form
+              className="application-form organization-admin-form"
+              onSubmit={(event) => void saveForm(event, 'POST', '/admin/faqs', (form) => ({
+                question: form.get('question'),
+                questionSw: form.get('questionSw'),
+                answer: form.get('answer'),
+                answerSw: form.get('answerSw'),
+                sortOrder: Number(form.get('sortOrder')),
+                isPublished: form.get('isPublished') === 'on'
+              }))}
+            >
+              <h4>{t('Add FAQ')}</h4>
+              <label>{t('Question')}<input name="question" maxLength={500} required /></label>
+              <label>{t('Question (Kiswahili)')}<input name="questionSw" maxLength={500} /></label>
+              <label>{t('Answer')}<textarea name="answer" rows={3} maxLength={10000} required /></label>
+              <label>{t('Answer (Kiswahili)')}<textarea name="answerSw" rows={3} maxLength={10000} /></label>
+              <label>{t('Display order')}<input name="sortOrder" type="number" min="0" step="1" defaultValue="0" required /></label>
+              <label><input name="isPublished" type="checkbox" defaultChecked />{t('Published')}</label>
+              <button className="primary-button" type="submit"><Plus size={16} aria-hidden="true" />{t('Add FAQ')}</button>
+            </form>
+            {data.faqEntries.map((faq) => (
+              <form
+                key={faq.id}
+                className="application-form organization-admin-form"
+                onSubmit={(event) => void saveForm(event, 'PATCH', `/admin/faqs/${faq.id}`, (form) => ({
+                  question: form.get('question'),
+                  questionSw: form.get('questionSw'),
+                  answer: form.get('answer'),
+                  answerSw: form.get('answerSw'),
+                  sortOrder: Number(form.get('sortOrder')),
+                  isPublished: form.get('isPublished') === 'on'
+                }))}
+              >
+                <label>{t('Question')}<input name="question" defaultValue={faq.question} maxLength={500} required /></label>
+                <label>{t('Question (Kiswahili)')}<input name="questionSw" defaultValue={faq.questionSw} maxLength={500} /></label>
+                <label>{t('Answer')}<textarea name="answer" rows={3} defaultValue={faq.answer} maxLength={10000} required /></label>
+                <label>{t('Answer (Kiswahili)')}<textarea name="answerSw" rows={3} defaultValue={faq.answerSw} maxLength={10000} /></label>
+                <label>{t('Display order')}<input name="sortOrder" type="number" min="0" step="1" defaultValue={faq.sortOrder} required /></label>
+                <label><input name="isPublished" type="checkbox" defaultChecked={faq.isPublished} />{t('Published')}</label>
+                <div className="organization-admin-actions">
+                  <button className="primary-button" type="submit"><Save size={16} aria-hidden="true" />{t('Save FAQ')}</button>
+                  <button className="secondary-button organization-admin-delete" type="button" onClick={() => void deleteRecord(`/admin/faqs/${faq.id}`)}><Trash2 size={16} aria-hidden="true" />{t('Delete FAQ')}</button>
+                </div>
+              </form>
+            ))}
+          </section>
           <form
             key={`${data.settings['home.statsStudents'] ?? ''}-${data.settings['home.statsStaff'] ?? ''}`}
             className="application-form management-create-form"

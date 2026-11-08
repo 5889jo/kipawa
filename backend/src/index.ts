@@ -675,39 +675,8 @@ const removePartnerLogo = async (imageUrl) => {
         throw error;
     }
 };
-const labImageKeys = ['multimedia', 'web-design', 'computer-maintenance', 'electronics', 'electrical', 'mechatronics'];
 const isValidLabImageUrl = (value) => typeof value === 'string' &&
     /^\/uploads\/labs\/[\w-]+\.(jpg|png|webp)$/i.test(value);
-const parseLabImageSettings = (value) => {
-    if (!value)
-        return {};
-    let parsed;
-    try {
-        parsed = JSON.parse(value);
-    }
-    catch {
-        throw new Error('Stored lab image settings contain invalid JSON.');
-    }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
-        throw new Error('Stored lab image settings must be an object.');
-    const settings = {};
-    for (const [key, images] of Object.entries(parsed)) {
-        if (!labImageKeys.includes(key) || typeof images !== 'object' || images === null || Array.isArray(images))
-            throw new Error('Stored lab image settings contain an invalid lab entry.');
-        const featured = images.featured ?? null;
-        const related = images.related ?? [];
-        if ((featured !== null && !isValidLabImageUrl(featured)) ||
-            !Array.isArray(related) || related.length > 8 || !related.every(isValidLabImageUrl)) {
-            throw new Error('Stored lab image settings contain an invalid image path.');
-        }
-        settings[key] = { featured, related: [...new Set(related)] };
-    }
-    return settings;
-};
-const getLabImageUrls = (settings) => Object.values(settings).flatMap(({ featured, related }) => [
-    ...(featured ? [featured] : []),
-    ...related
-]);
 const removeLabImage = async (imageUrl) => {
     if (!isValidLabImageUrl(imageUrl))
         throw new Error('Stored lab image path is invalid.');
@@ -754,6 +723,9 @@ const adminSectionPermissions = {
     publications: 'publications',
     'site-settings': 'siteSettings',
     'lab-images': 'siteSettings',
+    faqs: 'siteSettings',
+    labs: 'siteSettings',
+    'course-categories': 'siteSettings',
     'short-course-ticker-badge': 'siteSettings',
     'organization-structure': 'organizationStructure',
     partners: 'partners'
@@ -1456,6 +1428,76 @@ app.get('/api/site-settings', async (_req, res) => {
     res.json({
         data: Object.fromEntries(settings.map(({ key, value }) => [key, value])),
         translations: Object.fromEntries(settings.map(({ key, valueSw }) => [key, valueSw ?? '']))
+    });
+});
+app.get('/api/faqs', async (_req, res) => {
+    const entries = await prisma.faqEntry.findMany({
+        where: { isPublished: true },
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }]
+    });
+    res.json({
+        data: entries.map((entry) => ({
+            id: String(entry.id),
+            question: entry.question,
+            questionSw: entry.questionSw,
+            answer: entry.answer,
+            answerSw: entry.answerSw
+        }))
+    });
+});
+app.get('/api/labs', async (_req, res) => {
+    const areas = await prisma.labArea.findMany({
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        include: {
+            labs: {
+                where: { isPublished: true },
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                include: {
+                    topics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+                    images: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] }
+                }
+            }
+        }
+    });
+    res.json({
+        data: areas.map((area) => ({
+            id: String(area.id),
+            slug: area.slug,
+            name: area.name,
+            nameSw: area.nameSw,
+            labs: area.labs.map((lab) => ({
+                id: String(lab.id),
+                slug: lab.slug,
+                name: lab.name,
+                nameSw: lab.nameSw,
+                category: lab.category,
+                categorySw: lab.categorySw,
+                description: lab.description,
+                descriptionSw: lab.descriptionSw,
+                coverImageUrl: lab.coverImageUrl,
+                featuredImageUrl: lab.featuredImageUrl,
+                images: lab.images.map((image) => image.url),
+                topics: lab.topics.map((topic) => topic.title),
+                topicsSw: lab.topics.map((topic) => topic.titleSw ?? '')
+            }))
+        }))
+    });
+});
+app.get('/api/course-categories', async (_req, res) => {
+    const categories = await prisma.courseCategory.findMany({
+        orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+        include: { topics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } }
+    });
+    res.json({
+        data: categories.map((category) => ({
+            id: category.code,
+            name: category.name,
+            nameSw: category.nameSw,
+            description: category.description,
+            descriptionSw: category.descriptionSw,
+            topics: category.topics.map((topic) => topic.title),
+            topicsSw: category.topics.map((topic) => topic.titleSw ?? '')
+        }))
     });
 });
 app.post('/api/site-stats/visitor', async (req, res) => {
@@ -2194,7 +2236,7 @@ app.get('/api/admin/data', async (req, res) => {
     const canManage = (permission) => req.user.role === 'admin' || req.user.permissions.includes(permission) ||
         (permission === 'courses' && shortCourseOnly);
     const bookingAccess = getAdminBookingDataAccess(req.user.role, req.user.permissions);
-    const [users, roles, courses, databaseCourseCategories, publicationCourses, centres, articles, publications, bookings, courseBookings, settings, organizationMembers, partners] = await Promise.all([
+    const [users, roles, courses, databaseCourseCategories, courseCategoryContent, publicationCourses, centres, articles, publications, bookings, courseBookings, settings, organizationMembers, partners, faqEntries, labAreas] = await Promise.all([
         canManage('users') ? prisma.user.findMany({
             include: userWithRoles,
             orderBy: { createdAt: 'desc' }
@@ -2210,6 +2252,10 @@ app.get('/api/admin/data', async (req, res) => {
             orderBy: { createdAt: 'desc' }
         }) : Promise.resolve([]),
         canManage('courses') ? prisma.courseCategory.findMany({ orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }) : Promise.resolve([]),
+        canManage('siteSettings') ? prisma.courseCategory.findMany({
+            orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+            include: { topics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } }
+        }) : Promise.resolve([]),
         canManage('publications') ? prisma.course.findMany({
             select: { id: true, name: true, nameSw: true },
             orderBy: { name: 'asc' }
@@ -2237,6 +2283,19 @@ app.get('/api/admin/data', async (req, res) => {
         }) : Promise.resolve([]),
         canManage('partners') ? prisma.partner.findMany({
             orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }]
+        }) : Promise.resolve([]),
+        canManage('siteSettings') ? prisma.faqEntry.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] }) : Promise.resolve([]),
+        canManage('siteSettings') ? prisma.labArea.findMany({
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            include: {
+                labs: {
+                    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                    include: {
+                        topics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+                        images: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] }
+                    }
+                }
+            }
         }) : Promise.resolve([])
     ]);
     res.json({
@@ -2285,6 +2344,45 @@ app.get('/api/admin/data', async (req, res) => {
             centresSw: course.centres.map(({ centre }) => centre.nameSw ?? '')
         })),
         courseCategories: databaseCourseCategories.map((category) => category.code),
+        courseCategoryContent: courseCategoryContent.map((category) => ({
+            id: category.code,
+            name: category.name,
+            nameSw: category.nameSw ?? '',
+            description: category.description,
+            descriptionSw: category.descriptionSw ?? '',
+            topics: category.topics.map((topic) => ({ title: topic.title, titleSw: topic.titleSw ?? '' }))
+        })),
+        faqEntries: faqEntries.map((entry) => ({
+            id: String(entry.id),
+            question: entry.question,
+            questionSw: entry.questionSw ?? '',
+            answer: entry.answer,
+            answerSw: entry.answerSw ?? '',
+            sortOrder: entry.sortOrder,
+            isPublished: entry.isPublished
+        })),
+        labAreas: labAreas.map((area) => ({
+            id: String(area.id),
+            slug: area.slug,
+            name: area.name,
+            nameSw: area.nameSw ?? '',
+            labs: area.labs.map((lab) => ({
+                id: String(lab.id),
+                slug: lab.slug,
+                name: lab.name,
+                nameSw: lab.nameSw ?? '',
+                category: lab.category,
+                categorySw: lab.categorySw ?? '',
+                description: lab.description,
+                descriptionSw: lab.descriptionSw ?? '',
+                coverImageUrl: lab.coverImageUrl,
+                featuredImageUrl: lab.featuredImageUrl,
+                images: lab.images.map((image) => image.url),
+                topics: lab.topics.map((topic) => ({ title: topic.title, titleSw: topic.titleSw ?? '' })),
+                sortOrder: lab.sortOrder,
+                isPublished: lab.isPublished
+            }))
+        })),
         publicationCourses: publicationCourses.map((course) => ({
             id: String(course.id),
             name: course.name,
@@ -2422,6 +2520,260 @@ app.get('/api/admin/data', async (req, res) => {
 const isValidRolePermissions = (permissions) => Array.isArray(permissions) &&
     permissions.every((permission) => typeof permission === 'string' && adminPermissions.includes(permission)) &&
     new Set(permissions).size === permissions.length;
+const normalizeContentText = (value) => typeof value === 'string' ? value.trim() : '';
+const isValidLabCoverUrl = (value) => typeof value === 'string' && value.length <= 500 &&
+    (/^https:\/\/[^\s]+$/i.test(value) || /^\/labs\/[A-Za-z0-9._% -]+$/.test(value));
+const normalizeContentTopics = (titles, translations) => {
+    if (!Array.isArray(titles) || titles.length > 100 ||
+        !titles.every((title) => typeof title === 'string' && title.trim().length <= 180) ||
+        (translations !== undefined && (!Array.isArray(translations) ||
+            translations.length !== titles.length ||
+            !translations.every((title) => typeof title === 'string' && title.trim().length <= 180)))) {
+        return null;
+    }
+    const seen = new Set();
+    const topics = titles.map((title, index) => ({
+        title: title.trim(),
+        titleSw: typeof translations?.[index] === 'string' ? translations[index].trim() || null : null,
+        sortOrder: index
+    })).filter((topic) => topic.title);
+    if (topics.some((topic) => {
+        const key = topic.title.toLocaleLowerCase();
+        if (seen.has(key)) return true;
+        seen.add(key);
+        return false;
+    })) return null;
+    return topics;
+};
+app.post('/api/admin/faqs', async (req, res) => {
+    const question = normalizeContentText(req.body.question);
+    const answer = normalizeContentText(req.body.answer);
+    const questionSw = normalizeContentText(req.body.questionSw);
+    const answerSw = normalizeContentText(req.body.answerSw);
+    const sortOrder = Number(req.body.sortOrder ?? 0);
+    if (!question || question.length > 500 || questionSw.length > 500 ||
+        !answer || answer.length > 10000 || answerSw.length > 10000 ||
+        !Number.isInteger(sortOrder) || sortOrder < 0 ||
+        (req.body.isPublished !== undefined && typeof req.body.isPublished !== 'boolean')) {
+        res.status(400).json({ message: 'Enter a question, answer, and valid display order.' });
+        return;
+    }
+    try {
+        const entry = await prisma.faqEntry.create({
+            data: { question, questionSw: questionSw || null, answer, answerSw: answerSw || null, sortOrder, isPublished: req.body.isPublished ?? true }
+        });
+        res.status(201).json({ id: String(entry.id) });
+    } catch (error) {
+        if (isPrismaError(error, 'P2002')) {
+            res.status(409).json({ message: 'A FAQ with this question already exists.' });
+            return;
+        }
+        throw error;
+    }
+});
+app.patch('/api/admin/faqs/:id', async (req, res) => {
+    const id = Number(req.params.id);
+    const { question, questionSw, answer, answerSw, sortOrder, isPublished } = req.body;
+    if (!Number.isSafeInteger(id) || id <= 0 ||
+        (question !== undefined && (typeof question !== 'string' || !question.trim() || question.trim().length > 500)) ||
+        (questionSw !== undefined && (typeof questionSw !== 'string' || questionSw.length > 500)) ||
+        (answer !== undefined && (typeof answer !== 'string' || !answer.trim() || answer.trim().length > 10000)) ||
+        (answerSw !== undefined && (typeof answerSw !== 'string' || answerSw.length > 10000)) ||
+        (sortOrder !== undefined && (!Number.isInteger(sortOrder) || sortOrder < 0)) ||
+        (isPublished !== undefined && typeof isPublished !== 'boolean')) {
+        res.status(400).json({ message: 'Provide valid FAQ content to update.' });
+        return;
+    }
+    try {
+        await prisma.faqEntry.update({
+            where: { id },
+            data: {
+                ...(question !== undefined ? { question: question.trim() } : {}),
+                ...(questionSw !== undefined ? { questionSw: questionSw.trim() || null } : {}),
+                ...(answer !== undefined ? { answer: answer.trim() } : {}),
+                ...(answerSw !== undefined ? { answerSw: answerSw.trim() || null } : {}),
+                ...(sortOrder !== undefined ? { sortOrder } : {}),
+                ...(isPublished !== undefined ? { isPublished } : {})
+            }
+        });
+        res.json({ message: 'FAQ saved.' });
+    } catch (error) {
+        if (isPrismaError(error, 'P2002')) {
+            res.status(409).json({ message: 'A FAQ with this question already exists.' });
+            return;
+        }
+        if (isPrismaError(error, 'P2025')) {
+            res.status(404).json({ message: 'FAQ not found.' });
+            return;
+        }
+        throw error;
+    }
+});
+app.delete('/api/admin/faqs/:id', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+        res.status(400).json({ message: 'Invalid FAQ ID.' });
+        return;
+    }
+    const result = await prisma.faqEntry.deleteMany({ where: { id } });
+    if (!result.count) {
+        res.status(404).json({ message: 'FAQ not found.' });
+        return;
+    }
+    res.json({ message: 'FAQ deleted.' });
+});
+app.post('/api/admin/labs', async (req, res) => {
+    const { slug, areaId: rawAreaId, name, nameSw, category, categorySw, description, descriptionSw, coverImageUrl, topics, topicsSw } = req.body;
+    const areaId = Number(rawAreaId);
+    const sortOrder = Number(req.body.sortOrder ?? 0);
+    const normalizedTopics = normalizeContentTopics(topics ?? [], topicsSw);
+    const normalizedSlug = typeof slug === 'string' ? slug.trim().toLowerCase() : '';
+    const normalizedName = normalizeContentText(name);
+    const normalizedCategory = normalizeContentText(category);
+    const normalizedDescription = normalizeContentText(description);
+    const normalizedImageUrl = normalizeContentText(coverImageUrl);
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalizedSlug) || normalizedSlug.length > 100 ||
+        !Number.isSafeInteger(areaId) || areaId <= 0 ||
+        !normalizedName || normalizedName.length > 160 ||
+        (typeof nameSw !== 'undefined' && (typeof nameSw !== 'string' || nameSw.length > 160)) ||
+        !normalizedCategory || normalizedCategory.length > 160 ||
+        (typeof categorySw !== 'undefined' && (typeof categorySw !== 'string' || categorySw.length > 160)) ||
+        !normalizedDescription || normalizedDescription.length > 5000 ||
+        (typeof descriptionSw !== 'undefined' && (typeof descriptionSw !== 'string' || descriptionSw.length > 5000)) ||
+        !isValidLabCoverUrl(normalizedImageUrl) ||
+        !Number.isSafeInteger(sortOrder) || sortOrder < 0 || sortOrder > 10000 ||
+        normalizedTopics === null ||
+        (req.body.isPublished !== undefined && typeof req.body.isPublished !== 'boolean')) {
+        res.status(400).json({ message: 'Enter valid lab content, an area, a unique URL slug, and topic lists.' });
+        return;
+    }
+    if (!await prisma.labArea.findUnique({ where: { id: areaId }, select: { id: true } })) {
+        res.status(400).json({ message: 'Choose an existing lab area.' });
+        return;
+    }
+    try {
+        const lab = await prisma.$transaction(async (transaction) => {
+            const created = await transaction.lab.create({
+                data: {
+                    slug: normalizedSlug,
+                    areaId,
+                    name: normalizedName,
+                    nameSw: typeof nameSw === 'string' ? nameSw.trim() || null : null,
+                    category: normalizedCategory,
+                    categorySw: typeof categorySw === 'string' ? categorySw.trim() || null : null,
+                    description: normalizedDescription,
+                    descriptionSw: typeof descriptionSw === 'string' ? descriptionSw.trim() || null : null,
+                    coverImageUrl: normalizedImageUrl,
+                    sortOrder,
+                    isPublished: req.body.isPublished ?? true
+                }
+            });
+            if (normalizedTopics.length) {
+                await transaction.labTopic.createMany({
+                    data: normalizedTopics.map((topic) => ({ ...topic, labId: created.id }))
+                });
+            }
+            return created;
+        });
+        res.status(201).json({ id: String(lab.id) });
+    } catch (error) {
+        if (isPrismaError(error, 'P2002')) {
+            res.status(409).json({ message: 'A lab with this slug already exists.' });
+            return;
+        }
+        throw error;
+    }
+});
+app.patch('/api/admin/labs/:id', async (req, res) => {
+    const id = Number(req.params.id);
+    const { name, nameSw, category, categorySw, description, descriptionSw, coverImageUrl, topics, topicsSw, isPublished, sortOrder } = req.body;
+    const normalizedTopics = topics === undefined ? undefined : normalizeContentTopics(topics, topicsSw);
+    if (!Number.isSafeInteger(id) || id <= 0 ||
+        (name !== undefined && (typeof name !== 'string' || !name.trim() || name.trim().length > 160)) ||
+        (nameSw !== undefined && (typeof nameSw !== 'string' || nameSw.length > 160)) ||
+        (category !== undefined && (typeof category !== 'string' || !category.trim() || category.trim().length > 160)) ||
+        (categorySw !== undefined && (typeof categorySw !== 'string' || categorySw.length > 160)) ||
+        (description !== undefined && (typeof description !== 'string' || !description.trim() || description.length > 5000)) ||
+        (descriptionSw !== undefined && (typeof descriptionSw !== 'string' || descriptionSw.length > 5000)) ||
+        (coverImageUrl !== undefined && (typeof coverImageUrl !== 'string' || !isValidLabCoverUrl(coverImageUrl.trim()))) ||
+        (normalizedTopics === null) ||
+        (isPublished !== undefined && typeof isPublished !== 'boolean') ||
+        (sortOrder !== undefined && (!Number.isInteger(sortOrder) || sortOrder < 0))) {
+        res.status(400).json({ message: 'Provide valid lab content and topic lists.' });
+        return;
+    }
+    const data = {
+        ...(name !== undefined ? { name: name.trim() } : {}),
+        ...(nameSw !== undefined ? { nameSw: nameSw.trim() || null } : {}),
+        ...(category !== undefined ? { category: category.trim() } : {}),
+        ...(categorySw !== undefined ? { categorySw: categorySw.trim() || null } : {}),
+        ...(description !== undefined ? { description: description.trim() } : {}),
+        ...(descriptionSw !== undefined ? { descriptionSw: descriptionSw.trim() || null } : {}),
+        ...(coverImageUrl !== undefined ? { coverImageUrl: coverImageUrl.trim() } : {}),
+        ...(isPublished !== undefined ? { isPublished } : {}),
+        ...(sortOrder !== undefined ? { sortOrder } : {})
+    };
+    try {
+        await prisma.$transaction(async (transaction) => {
+            await transaction.lab.update({ where: { id }, data });
+            if (normalizedTopics !== undefined) {
+                await transaction.labTopic.deleteMany({ where: { labId: id } });
+                if (normalizedTopics.length) {
+                    await transaction.labTopic.createMany({ data: normalizedTopics.map((topic) => ({ ...topic, labId: id })) });
+                }
+            }
+        });
+    } catch (error) {
+        if (isPrismaError(error, 'P2025')) {
+            res.status(404).json({ message: 'Lab not found.' });
+            return;
+        }
+        throw error;
+    }
+    res.json({ message: 'Lab saved.' });
+});
+app.patch('/api/admin/course-categories/:code', async (req, res) => {
+    const code = req.params.code;
+    const { name, nameSw, description, descriptionSw, topics, topicsSw } = req.body;
+    const normalizedTopics = topics === undefined ? undefined : normalizeContentTopics(topics, topicsSw);
+    if (typeof code !== 'string' || !code.trim() ||
+        (name !== undefined && (typeof name !== 'string' || !name.trim() || name.trim().length > 100)) ||
+        (nameSw !== undefined && (typeof nameSw !== 'string' || nameSw.length > 100)) ||
+        (description !== undefined && (typeof description !== 'string' || !description.trim() || description.length > 2000)) ||
+        (descriptionSw !== undefined && (typeof descriptionSw !== 'string' || descriptionSw.length > 2000)) ||
+        normalizedTopics === null) {
+        res.status(400).json({ message: 'Provide valid course category content and topic lists.' });
+        return;
+    }
+    try {
+        await prisma.$transaction(async (transaction) => {
+            await transaction.courseCategory.update({
+                where: { code: code.trim() },
+                data: {
+                    ...(name !== undefined ? { name: name.trim() } : {}),
+                    ...(nameSw !== undefined ? { nameSw: nameSw.trim() || null } : {}),
+                    ...(description !== undefined ? { description: description.trim() } : {}),
+                    ...(descriptionSw !== undefined ? { descriptionSw: descriptionSw.trim() || null } : {})
+                }
+            });
+            if (normalizedTopics !== undefined) {
+                await transaction.courseCategoryTopic.deleteMany({ where: { categoryCode: code.trim() } });
+                if (normalizedTopics.length) {
+                    await transaction.courseCategoryTopic.createMany({
+                        data: normalizedTopics.map((topic) => ({ ...topic, categoryCode: code.trim() }))
+                    });
+                }
+            }
+        });
+    } catch (error) {
+        if (isPrismaError(error, 'P2025')) {
+            res.status(404).json({ message: 'Course category not found.' });
+            return;
+        }
+        throw error;
+    }
+    res.json({ message: 'Course category saved.' });
+});
 app.post('/api/admin/roles', async (req, res) => {
     const { name, description, permissions } = req.body;
     const normalizedName = typeof name === 'string' ? name.trim() : '';
@@ -4173,7 +4525,7 @@ app.post('/api/admin/lab-images', uploadLabImages, async (req, res) => {
     };
     const labKey = req.body.labKey;
     const clearFeaturedImage = req.body.clearFeaturedImage;
-    if (!labImageKeys.includes(labKey)) {
+    if (typeof labKey !== 'string' || !labKey.trim()) {
         await reject(400, 'Choose a valid lab area.');
         return;
     }
@@ -4188,12 +4540,18 @@ app.post('/api/admin/lab-images', uploadLabImages, async (req, res) => {
         await reject(400, 'Choose a featured image or remove the current one, not both.');
         return;
     }
-    const siteSetting = await prisma.siteSetting.findUnique({
-        where: { key: 'labs.images' },
-        select: { value: true }
+    const lab = await prisma.lab.findUnique({
+        where: { slug: labKey },
+        include: { images: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } }
     });
-    const previousSettings = parseLabImageSettings(siteSetting?.value ?? null);
-    const currentImages = previousSettings[labKey] ?? { featured: null, related: [] };
+    if (!lab) {
+        await reject(404, 'The selected lab could not be found.');
+        return;
+    }
+    const currentImages = {
+        featured: lab.featuredImageUrl,
+        related: lab.images.map((image) => image.url)
+    };
     const requestedRelated = req.body.relatedImageUrls === undefined
         ? []
         : Array.isArray(req.body.relatedImageUrls)
@@ -4218,17 +4576,26 @@ app.post('/api/admin/lab-images', uploadLabImages, async (req, res) => {
         await reject(400, 'Each lab can have up to eight related images.');
         return;
     }
-    const nextSettings = {
-        ...previousSettings,
-        [labKey]: { featured, related }
-    };
-    await prisma.siteSetting.upsert({
-        where: { key: 'labs.images' },
-        update: { value: JSON.stringify(nextSettings) },
-        create: { key: 'labs.images', value: JSON.stringify(nextSettings) }
-    });
-    const retainedUrls = new Set(getLabImageUrls(nextSettings));
-    const removedUrls = getLabImageUrls(previousSettings).filter((imageUrl) => !retainedUrls.has(imageUrl));
+    try {
+        await prisma.$transaction(async (transaction) => {
+            await transaction.lab.update({
+                where: { id: lab.id },
+                data: { featuredImageUrl: featured }
+            });
+            await transaction.labImage.deleteMany({ where: { labId: lab.id } });
+            if (related.length) {
+                await transaction.labImage.createMany({
+                    data: related.map((url, sortOrder) => ({ labId: lab.id, url, sortOrder }))
+                });
+            }
+        });
+    } catch (error) {
+        await removeRequestUploads(req);
+        throw error;
+    }
+    const retainedUrls = new Set([...(featured ? [featured] : []), ...related]);
+    const removedUrls = [...(currentImages.featured ? [currentImages.featured] : []), ...currentImages.related]
+        .filter((imageUrl) => !retainedUrls.has(imageUrl));
     await Promise.all(removedUrls.map(async (imageUrl) => {
         try {
             await removeLabImage(imageUrl);
@@ -4237,7 +4604,7 @@ app.post('/api/admin/lab-images', uploadLabImages, async (req, res) => {
             console.error('Unable to remove replaced lab image:', cleanupError);
         }
     }));
-    res.json({ message: 'Lab images saved.', settings: nextSettings });
+    res.json({ message: 'Lab images saved.' });
 });
 app.post('/api/admin/short-course-ticker-badge', uploadTickerBadge, async (req, res) => {
     const shouldRemove = req.body.removeBadge === 'true';
